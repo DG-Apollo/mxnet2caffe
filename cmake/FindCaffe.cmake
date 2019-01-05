@@ -1,0 +1,56 @@
+# FindCaffe.cmake
+# ------------
+#	You can specify the path to caffe files in CAFFE_HOME
+#
+#	This will define the following variables:
+#	CAFFE_FOUND			- True if the system has the Inference Engine library
+#	CAFFE_INCLUDE_DIRS	- TensorRT include directories
+#	CAFFE_LIBRARIES		- TensorRT libraries
+
+INCLUDE(FindPackageHandleStandardArgs)
+
+IF(NOT "${CAFFE_HOME}" STREQUAL "")
+	SET(CAFFE_HOME_HINTS "${CAFFE_HOME}/build/install" "${CAFFE_HOME}")
+ELSEIF()
+	SET(CAFFE_HOME_HINTS "/usr" "/usr/local")
+ENDIF()
+
+FIND_PATH(CAFFE_INCLUDE_DIR
+	NAMES
+		caffe/caffe.hpp
+		caffe/common.hpp
+		caffe/net.hpp
+		caffe/util/io.hpp
+	PATH_SUFFIXES include
+	HINTS ${CAFFE_HOME_HINTS}
+	)
+SET(CAFFE_INCLUDE_DIRS ${CAFFE_INCLUDE_DIR})
+
+SET(CAFFE_PROTO_HEADER "caffe/proto/caffe.pb.h")
+IF (NOT EXISTS "${CAFFE_INCLUDE_DIR}/${CAFFE_PROTO_HEADER}")
+	FIND_PATH(CAFFE_PROTO_HEADER_DIR
+		NAMES caffe/proto/caffe.pb.h
+		PATH_SUFFIXES include
+		HINTS ${CAFFE_HOME_HINTS}
+		)
+	IF (NOT ${CAFFE_PROTO_HEADER_DIR})
+		MESSAGE(WARNING "${CAFFE_PROTO_HEADER} not found")
+		UNSET(CAFFE_INCLUDE_DIRS)
+	ELSEIF()
+		LIST(APPEND CAFFE_INCLUDE_DIRS ${CAFFE_PROTO_HEADER_DIR})
+	ENDIF()
+ENDIF()
+
+FIND_LIBRARY(CAFFE_LIBRARIES
+	NAMES caffe
+	PATH_SUFFIXES lib
+	HINTS ${CAFFE_HOME_HINTS}
+	)
+
+FIND_PACKAGE_HANDLE_STANDARD_ARGS(Caffe
+	FOUND_VAR CAFFE_FOUND
+	REQUIRED_VARS CAFFE_INCLUDE_DIRS
+	REQUIRED_VARS CAFFE_LIBRARIES
+	REQUIRED_VARS CAFFE_PROTO_HEADER
+	)
+
