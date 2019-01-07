@@ -39,14 +39,30 @@ std::string Attr_Tuple2Num(std::string strTuple) {
 	return std::to_string(nVal1);
 }
 
-std::string Attr_Num2Bool(std::string strBool) {
-	CHECK(strBool == "0" || strBool == "1") << "Bad boolean value";
-	return (strBool == "1") ? "true" : "false";
+std::string Attr_Bool(std::string strBool) {
+	std::transform(strBool.begin(), strBool.end(), strBool.begin(), ::tolower);
+	bool bValue;
+	if (strBool == "0" || strBool == "false") {
+		bValue = false;
+	} else if (strBool == "1" || strBool == "true") {
+		bValue = true;
+	} else {
+		LOG(INFO) << "Bad boolean value: " << strBool;
+	}
+	return (bValue) ? "true" : "false";
 }
 
-std::string Attr_Num2BoolInv(std::string strBool) {
-	CHECK(strBool == "0" || strBool == "1") << "Bad boolean value";
-	return (strBool == "0") ? "true" : "false";
+std::string Attr_BoolInv(std::string strBool) {
+	std::transform(strBool.begin(), strBool.end(), strBool.begin(), ::tolower);
+	bool bValue;
+	if (strBool == "0" || strBool == "false") {
+		bValue = true;
+	} else if (strBool == "1" || strBool == "true") {
+		bValue = false;
+	} else {
+		LOG(INFO) << "Bad boolean value: " << strBool;
+	}
+	return (bValue) ? "true" : "false";
 }
 
 std::string Attr_PoolType(std::string strPool) {
@@ -136,12 +152,12 @@ std::pair<CaffeLayer, LayerFlags> MxnetNode2CaffeLayer(
 		caffeLayer.strType = "InnerProduct";
 		caffeLayer.strParamName = "inner_product_param";
 		AttrMxnet2Caffe("num_hidden", "num_output", Attr_Copy, true);
-		AttrMxnet2Caffe("no_bias", "bias_term", Attr_Num2BoolInv, true);
+		AttrMxnet2Caffe("no_bias", "bias_term", Attr_BoolInv, true);
 	} else if (mxnetNode.strOp == "Convolution") {
 		caffeLayer.strType = "Convolution";
 		caffeLayer.strParamName = "convolution_param";
 		AttrMxnet2Caffe("num_filter", "num_output", Attr_Copy, true);
-		AttrMxnet2Caffe("no_bias", "bias_term", Attr_Num2BoolInv, true);
+		AttrMxnet2Caffe("no_bias", "bias_term", Attr_BoolInv, true);
 		AttrMxnet2Caffe("kernel", "kernel_size", Attr_Tuple2Num, true);
 		AttrMxnet2Caffe("dilate", "dilation", Attr_Tuple2Num, false);
 		AttrMxnet2Caffe("pad", "pad", Attr_Tuple2Num, false);
@@ -154,19 +170,30 @@ std::pair<CaffeLayer, LayerFlags> MxnetNode2CaffeLayer(
 		AttrMxnet2Caffe("stride", "stride", Attr_Tuple2Num, false);
 		AttrMxnet2Caffe("pad", "pad", Attr_Tuple2Num, false);
 		AttrMxnet2Caffe("global_pool", "global_pooling",
-				Attr_Num2Bool, false);
+				Attr_Bool, false);
 		AttrMxnet2Caffe("pool_type", "pool", Attr_PoolType, false);
+		if (caffeLayer.params.GetValue("global_pooling", false) == "true") {
+			caffeLayer.params.RemoveValue("kernel_size");
+			caffeLayer.params.RemoveValue("stride");
+			caffeLayer.params.RemoveValue("pad");
+		} else {
+			caffeLayer.params.RemoveValue("global_pooling");
+		}
 		std::string strActType = mxnetNode.attrs.GetValue(
 				"pooling_convention", false);
 		if (strActType != "full") {
 			LOG(WARNING) << "pooling attribute \"pooling_convention\""
 					" != \"full\", converted model may not work properly!";
 		}
+	} else if (mxnetNode.strOp == "elemwise_add") {
+		caffeLayer.strType = "Eltwise";
+		caffeLayer.strParamName = "eltwise_param";
+		caffeLayer.params.emplace_back("operation", "SUM");
 	} else if (mxnetNode.strOp == "BatchNorm") {
 		caffeLayer.strType = "BatchNorm";
 		caffeLayer.strParamName = "batch_norm_param";
 		AttrMxnet2Caffe("use_global_stats", "use_global_stats",
-				Attr_Num2Bool, false);
+				Attr_Bool, false);
 	} else {
 		LOG(FATAL) << "Unsupported op: " << mxnetNode.strOp;
 	}
@@ -174,42 +201,46 @@ std::pair<CaffeLayer, LayerFlags> MxnetNode2CaffeLayer(
 }
 
 int GuessBlobIDFromInputName(std::string strInputName) {
-	static std::map<std::string, size_t> suffix2BlodID = {
-			{"weight", 0}, {"gamma", 0}, {"mmean", 0},
-			{"bias", 1}, {"beta", 1}, {"mvar", 1}};
-	auto iSuffixIdx = strInputName.find_last_of('_');
-	if (iSuffixIdx == std::string::npos) {
+	using namespace std::placeholders;
+	using SuffixBlobID = std::pair<std::string, size_t>;
+	using SBAry = std::vector<SuffixBlobID>;
+	static SBAry sbAry = {
+			{"weight", 0}, {"gamma", 0}, {"moving_mean", 0},
+			{"bias", 1}, {"beta", 1}, {"moving_var", 1}
+		};
+	auto iSuffix = std::find_if(sbAry.begin(), sbAry.end(),
+			[&](const SuffixBlobID &sb) {
+				return IsEndWith(strInputName, sb.first);
+			}
+		);
+	if (iSuffix == sbAry.end()) {
 		return -1;
 	}
-	strInputName.erase(0, iSuffixIdx + 1);
-	auto iBlobID = suffix2BlodID.find(strInputName);
-	if (iBlobID == suffix2BlodID.end()) {
-		return -1;
-	}
-	int nBlobID = (int)iBlobID->second;
-	return nBlobID;
+	return iSuffix->second;
 }
 
 void ExpandOrMergeLayers(std::vector<CaffeLayer> &layers) {
 	for (auto iLayer = layers.begin(); iLayer != layers.end(); ) {
 		if (iLayer->strType == "BatchNorm") {
-			auto &inputs = iLayer->inputs;
-			CHECK_EQ(inputs.size(), 5);
+			CHECK_EQ(iLayer->inputs.size(), 5);
 			CHECK_EQ(iLayer->outputs.size(), 1);
 			std::string strLayerName = iLayer->strName;
 			std::string strOutputName = iLayer->outputs[0];
-			std::string strInputGamma = inputs[0];
-			std::string strInputBeta = inputs[1];
-			inputs.erase(inputs.begin() + 1, inputs.begin() + 3);
+			std::string strInputGamma = iLayer->inputs[1];
+			std::string strInputBeta = iLayer->inputs[2];
+			iLayer->inputs.erase(iLayer->inputs.begin() + 1,
+					iLayer->inputs.begin() + 3);
 
 			iLayer = layers.insert(++iLayer, CaffeLayer());
 			iLayer->strName = strLayerName + "_scale";
 			iLayer->strType = "Scale";
-			iLayer->strParamName = "scale_params";
+			iLayer->strParamName = "scale_param";
 			iLayer->inputs.push_back(strOutputName);
 			iLayer->inputs.push_back(strInputGamma);
 			iLayer->inputs.push_back(strInputBeta);
 			iLayer->outputs.push_back(strOutputName);
+			iLayer->params.emplace_back("bias_term", "true");
+
 			++iLayer;
 		} else if (iLayer->strType == "Flatten" ||
 				GuessBlobIDFromInputName(iLayer->strName) >= 0) {
@@ -221,8 +252,7 @@ void ExpandOrMergeLayers(std::vector<CaffeLayer> &layers) {
 }
 
 void AssignBlobs(std::vector<CaffeLayer> &layers,
-		const std::vector<MxnetParam> &mxnetParams,
-		const std::vector<InputInfo> &inputInfos) {
+		const std::vector<MxnetParam> &mxnetParams) {
 	for (auto &layer : layers) {
 		auto &inputs = layer.inputs;
 		for (auto iInput = inputs.begin(); iInput != inputs.end(); ) {
@@ -244,13 +274,9 @@ void AssignBlobs(std::vector<CaffeLayer> &layers,
 				++iInput;
 			}
 		}
-		auto iInputInfo = std::find_if(inputInfos.begin(), inputInfos.end(),
-				[&](const InputInfo &ii) {
-					return (layer.strName == ii.first);
-				}
-			);
-		if (iInputInfo != inputInfos.end()) {
-			layer.inputShape = iInputInfo->second;
+		if (layer.strType == "BatchNorm") {
+			layer.blobs.resize(3);
+			layer.blobs[2] = {1.0f};
 		}
 	}
 }
@@ -307,7 +333,18 @@ std::vector<CaffeLayer> MxnetNodes2CaffeLayers(
 
 	ExpandOrMergeLayers(caffeLayers);
 
-	AssignBlobs(caffeLayers, mxnetParams, inputInfos);
+	AssignBlobs(caffeLayers, mxnetParams);
+	
+	for (auto &layer : caffeLayers) {
+		auto iInputInfo = std::find_if(inputInfos.begin(), inputInfos.end(),
+				[&](const InputInfo &ii) {
+					return (layer.strName == ii.first);
+				}
+			);
+		if (iInputInfo != inputInfos.end()) {
+			layer.inputShape = iInputInfo->second;
+		}
+	}
 
 	return caffeLayers;
 }

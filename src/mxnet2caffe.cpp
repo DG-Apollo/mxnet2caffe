@@ -114,27 +114,34 @@ int main(int nArgCnt, char *ppArgs[]) {
 	caffe::ReadProtoFromTextFile(po.strCaffeProto.c_str(), &netParams);
 	caffe::Net<float> net(netParams);
 	auto layers = net.layers();
-	for (auto &netLayer : layers) {
-		std::string strLayerName = netLayer->layer_param().name();
+	for (auto &protoLayer : layers) {
+		std::string strLayerName = protoLayer->layer_param().name();
 		auto iCaffeLayer = std::find_if(caffeLayers.begin(), caffeLayers.end(),
 				[&strLayerName](const CaffeLayer &layer) {
 					return layer.strName == strLayerName;
 				}
 			);
+		if (iCaffeLayer == caffeLayers.end()) {
+			iCaffeLayer = std::find_if(caffeLayers.begin(), caffeLayers.end(),
+					[&strLayerName](const CaffeLayer &layer) {
+						std::string strCompose = layer.strName + "_";
+						strCompose = strCompose + strCompose + "0_split";
+						return (strCompose == strLayerName);
+					}
+				);
+		}
 		CHECK(iCaffeLayer != caffeLayers.end()) << strLayerName;
-		auto blobs = netLayer->blobs();
-		if (!blobs.empty()) {
-			if (iCaffeLayer->blobs.size() != blobs.size()) {
-				LOG(WARNING) << "NetLayer has " << blobs.size() <<
-						" blobs, but caffeLayer has " <<
-						iCaffeLayer->blobs.size() << " blobs";
-			} else {
-				for (size_t i = 0; i < blobs.size(); ++i) {
-					CHECK_EQ(blobs[i]->count(), iCaffeLayer->blobs[i].size());
-					memcpy(blobs[i]->mutable_cpu_data(),
-							iCaffeLayer->blobs[i].data(),
-							blobs[i]->count() * sizeof(float));
-				}
+		auto &protoBlobs = protoLayer->blobs();
+		if (iCaffeLayer->blobs.size() != protoBlobs.size()) {
+			LOG(WARNING) << "We expect the layer \"" << strLayerName <<
+					"\" having " << iCaffeLayer->blobs.size() << " blobs, " <<
+					"but caffe tell us it is " << protoBlobs.size();
+		} else {
+			for (size_t i = 0; i < protoBlobs.size(); ++i) {
+				CHECK_EQ(protoBlobs[i]->count(), iCaffeLayer->blobs[i].size());
+				memcpy(protoBlobs[i]->mutable_cpu_data(),
+						iCaffeLayer->blobs[i].data(),
+						protoBlobs[i]->count() * sizeof(float));
 			}
 		}
 	}
