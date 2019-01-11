@@ -1,6 +1,8 @@
 #ifndef _LOGGING_HDR
 #define _LOGGING_HDR
 
+#define DMLC_LOG_STACK_TRACE 1
+
 #ifdef DMLC_LOG_STACK_TRACE
 #include <execinfo.h>
 #include <cxxabi.h>
