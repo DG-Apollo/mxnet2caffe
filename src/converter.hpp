@@ -10,14 +10,16 @@
 
 #include <vector>
 
+#define CPU_ONLY
+#include <caffe/caffe.hpp>
+
 #include "mxnet_parser.hpp"
 #include "caffe_layer.hpp"
 
-std::vector<CaffeLayer> MxnetNodes2CaffeLayers(
+std::vector<caffe::LayerParameter> MxnetNodes2CaffeLayers(
 		const std::vector<MxnetNode> &mxnetNodes,
 		const std::vector<size_t> &headIndices,
 		const std::vector<MxnetParam> &mxnetParams,
 		const std::vector<InputInfo> &inputInfos);
-
 
 #endif /* CONVERTER_HPP_ */
