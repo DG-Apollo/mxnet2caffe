@@ -432,9 +432,9 @@ std::vector<caffe::LayerParameter> MxnetNodes2CaffeLayers(
 				}
 			);
 		if (iInputInfo != inputInfos.end()) {
-			auto &protoShape = *(layer.mutable_input_param()->mutable_shape());
+			auto *pShape = layer.mutable_input_param()->add_shape();
 			for (auto d : iInputInfo->second) {
-				protoShape.add_dim((int)d);
+				pShape->add_dim((int)d);
 			}
 		}
 	}
