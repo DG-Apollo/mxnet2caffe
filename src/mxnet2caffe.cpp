@@ -1,10 +1,7 @@
 
-#define CPU_ONLY
-
 #include <functional>
 #include <iostream>
 #include <fstream>
-#include <caffe/caffe.hpp>
 #include <map>
 
 #include "logging.hpp"
@@ -14,6 +11,7 @@
 #include "caffe_layer.hpp"
 #include "converter.hpp"
 
+namespace proto = google::protobuf;
 using InputInfo = std::pair<std::string, Shape>;
 
 struct ProgramOptions {
@@ -92,6 +90,38 @@ std::string GenerateModelName(std::string strProtoFn) {
 	return nameAndExt.first;
 }
 
+/*
+void AssignBlobs(std::vector<CaffeLayer> &layers,
+		const std::vector<MxnetParam> &mxnetParams) {
+	for (auto &layer : layers) {
+		auto &inputs = layer.mutable_bottom();
+		for (auto iInput = inputs.begin(); iInput != inputs.end(); ) {
+			std::string &strInputName = *iInput;
+			int nBlobId = GuessBlobIDFromInputName(strInputName);
+			if (nBlobId >= 0) {
+				auto iParam = std::find_if(mxnetParams.begin(),
+						mxnetParams.end(), [&](const MxnetParam &param) {
+							return IsEndWith(param.strName, strInputName);
+						}
+					);
+				if (iParam != mxnetParams.end()) {
+					size_t nNewSize = size_t(nBlobId + 1);
+					nNewSize = std::max(nNewSize, layer.blobs.size());
+					layer.blobs.resize(nNewSize);
+					layer.blobs[nBlobId] = iParam->data;
+				}
+				iInput = inputs.erase(iInput);
+			} else {
+				++iInput;
+			}
+		}
+		if (layer.strType == "BatchNorm") {
+			layer.blobs.resize(3);
+			layer.blobs[2] = {1.0f};
+		}
+	}
+}
+*/
 int main(int nArgCnt, char *ppArgs[]) {
 	ProgramOptions po;
 	if (!ParseArgument(nArgCnt, ppArgs, po)) {
@@ -100,54 +130,52 @@ int main(int nArgCnt, char *ppArgs[]) {
 
 	auto mxnetParseResult = ParseMxnetJson(po.strMxnetJson);
 	auto mxnetParams = LoadMxnetParam(po.strMxnetParams);
-	auto caffeLayers = MxnetNodes2CaffeLayers(mxnetParseResult.first,
+	auto protoNet = MxnetNodes2CaffeLayers(mxnetParseResult.first,
 			mxnetParseResult.second, mxnetParams, po.inputInfos);
+	protoNet.set_name(GenerateModelName(po.strCaffeProto));
+
+	std::string strProtoBuf;
+	proto::TextFormat::PrintToString(protoNet, &strProtoBuf);
 
 	std::ofstream protoFile(po.strCaffeProto);
-	protoFile << "name: \"" << GenerateModelName(po.strCaffeProto) << "\"\n";
-	for (auto &l : caffeLayers) {
-		protoFile << l;
-	}
+	protoFile.write(strProtoBuf.data(), strProtoBuf.size());
 	protoFile.close();
 
-	caffe::NetParameter netParams;
-	caffe::ReadProtoFromTextFile(po.strCaffeProto.c_str(), &netParams);
-	caffe::Net<float> net(netParams);
-	auto layers = net.layers();
-	for (auto &protoLayer : layers) {
-		std::string strLayerName = protoLayer->layer_param().name();
-		auto iCaffeLayer = std::find_if(caffeLayers.begin(), caffeLayers.end(),
-				[&strLayerName](const CaffeLayer &layer) {
-					return layer.strName == strLayerName;
+	caffe::Net<float> net(protoNet);
+	auto &layers = net.layers();
+	for (auto &netLayer : layers) {
+		std::string strLayerName = netLayer->layer_param().name();
+		auto iProtoLayer = std::find_if(protoNet.layer.begin(),
+				protoNet.layer.end(),
+				[&strLayerName](const caffe::LayerParameter &protoLayer) {
+					std::string strCompose = protoLayer.name() + "_";
+					strCompose = strCompose + strCompose + "0_split";
+					return protoLayer.name() == strLayerName) ||
+							strCompose == strLayerName;
 				}
 			);
-		if (iCaffeLayer == caffeLayers.end()) {
-			iCaffeLayer = std::find_if(caffeLayers.begin(), caffeLayers.end(),
-					[&strLayerName](const CaffeLayer &layer) {
-						std::string strCompose = layer.strName + "_";
-						strCompose = strCompose + strCompose + "0_split";
-						return (strCompose == strLayerName);
+		CHECK(iProtoLayer != protoNet.layer.end());
+		auto &inputs = iProtoLayer->bottom();
+		for (auto &strInputName : inputs) {
+			auto iParam = std::find_if(mxnetParams.begin(),
+					mxnetParams.end(), [&](const MxnetParam &param) {
+						return IsEndWith(param.strName, strInputName);
 					}
 				);
-		}
-		CHECK(iCaffeLayer != caffeLayers.end()) << strLayerName;
-		auto &protoBlobs = protoLayer->blobs();
-		if (iCaffeLayer->blobs.size() != protoBlobs.size()) {
-			LOG(WARNING) << "We expect the layer \"" << strLayerName <<
-					"\" having " << iCaffeLayer->blobs.size() << " blobs, " <<
-					"but caffe tell us it is " << protoBlobs.size();
-		} else {
-			for (size_t i = 0; i < protoBlobs.size(); ++i) {
-				CHECK_EQ(protoBlobs[i]->count(), iCaffeLayer->blobs[i].size());
-				memcpy(protoBlobs[i]->mutable_cpu_data(),
-						iCaffeLayer->blobs[i].data(),
-						protoBlobs[i]->count() * sizeof(float));
+			if (iParam != mxnetParam.end()) {
+				int nBlobId = GuessBlobIDFromInputName(strInputName);
+				CHECK_GE(nBlobId, 0);
+				CHECK_LT(nBlobId, netLayer.blobs.size());
+				auto &pNetBlob = iParam->blobs()[nBlobId];
+				CHECK_EQ(pNetBlob->count(), iParam->data.size());
+				memcpy(pNetBlob->mutable_cpu_data(), iParam->data.size(),
+						pNetBlob->count() * sizeof(float));
 			}
 		}
 	}
 
-	net.ToProto(&netParams, false);
-	caffe::WriteProtoToBinaryFile(netParams, po.strCaffeModel.c_str());
+	net.ToProto(&protoNet, false);
+	caffe::WriteProtoToBinaryFile(protoNet, po.strCaffeModel.c_str());
 
 	return 0;
 }

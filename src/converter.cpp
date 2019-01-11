@@ -285,14 +285,6 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 	return cvtInfo;
 }
 
-bool IsEndWith(const std::string &strString, const std::string &strSuffix) {
-	if (strString.length() >= strSuffix.length()) {
-		return (0 == strString.compare(strString.length() - strSuffix.length(),
-				strSuffix.length(), strSuffix));
-	}
-	return false;
-}
-
 int GuessBlobIDFromInputName(std::string strInputName) {
 	using namespace std::placeholders;
 	using SuffixBlobID = std::pair<std::string, size_t>;
@@ -371,10 +363,9 @@ std::vector<size_t> SortIndicesByDependencies(
 	return std::move(results);
 }
 
-std::vector<caffe::LayerParameter> MxnetNodes2CaffeLayers(
+caffe::NetParameter MxnetNodes2CaffeNet(
 		const std::vector<MxnetNode> &mxnetNodes,
 		const std::vector<size_t> &headIndices,
-		const std::vector<MxnetParam> &mxnetParams,
 		const std::vector<InputInfo> &inputInfos) {
 	auto sortedIndices = SortIndicesByDependencies(mxnetNodes, headIndices);
 	std::vector<caffe::LayerParameter> caffeLayers;
@@ -425,6 +416,7 @@ std::vector<caffe::LayerParameter> MxnetNodes2CaffeLayers(
 
 	ExpandOrMergeLayers(caffeLayers);
 	
+	caffe::NetParameter net;
 	for (auto &layer : caffeLayers) {
 		auto iInputInfo = std::find_if(inputInfos.begin(), inputInfos.end(),
 				[&](const InputInfo &ii) {
@@ -437,40 +429,17 @@ std::vector<caffe::LayerParameter> MxnetNodes2CaffeLayers(
 				pShape->add_dim((int)d);
 			}
 		}
+		net.add_layer()->CopyFrom(layer);
 	}
 
-	return caffeLayers;
+	return net;
 }
 
-/*
-void AssignBlobs(std::vector<CaffeLayer> &layers,
-		const std::vector<MxnetParam> &mxnetParams) {
-	for (auto &layer : layers) {
-		auto &inputs = layer.mutable_bottom();
-		for (auto iInput = inputs.begin(); iInput != inputs.end(); ) {
-			std::string &strInputName = *iInput;
-			int nBlobId = GuessBlobIDFromInputName(strInputName);
-			if (nBlobId >= 0) {
-				auto iParam = std::find_if(mxnetParams.begin(),
-						mxnetParams.end(), [&](const MxnetParam &param) {
-							return IsEndWith(param.strName, strInputName);
-						}
-					);
-				if (iParam != mxnetParams.end()) {
-					size_t nNewSize = size_t(nBlobId + 1);
-					nNewSize = std::max(nNewSize, layer.blobs.size());
-					layer.blobs.resize(nNewSize);
-					layer.blobs[nBlobId] = iParam->data;
-				}
-				iInput = inputs.erase(iInput);
-			} else {
-				++iInput;
-			}
-		}
-		if (layer.strType == "BatchNorm") {
-			layer.blobs.resize(3);
-			layer.blobs[2] = {1.0f};
-		}
+bool IsEndWith(const std::string &strString, const std::string &strSuffix) {
+	if (strString.length() >= strSuffix.length()) {
+		return (0 == strString.compare(strString.length() - strSuffix.length(),
+				strSuffix.length(), strSuffix));
 	}
+	return false;
 }
-*/
+
