@@ -3,12 +3,12 @@
 #include <iostream>
 #include <fstream>
 #include <map>
+#include <google/protobuf/text_format.h>
 
 #include "logging.hpp"
 #include "common.hpp"
 #include "json_helper.hpp"
 #include "mxnet_parser.hpp"
-#include "caffe_layer.hpp"
 #include "converter.hpp"
 
 namespace proto = google::protobuf;
@@ -90,38 +90,6 @@ std::string GenerateModelName(std::string strProtoFn) {
 	return nameAndExt.first;
 }
 
-/*
-void AssignBlobs(std::vector<CaffeLayer> &layers,
-		const std::vector<MxnetParam> &mxnetParams) {
-	for (auto &layer : layers) {
-		auto &inputs = layer.mutable_bottom();
-		for (auto iInput = inputs.begin(); iInput != inputs.end(); ) {
-			std::string &strInputName = *iInput;
-			int nBlobId = GuessBlobIDFromInputName(strInputName);
-			if (nBlobId >= 0) {
-				auto iParam = std::find_if(mxnetParams.begin(),
-						mxnetParams.end(), [&](const MxnetParam &param) {
-							return IsEndWith(param.strName, strInputName);
-						}
-					);
-				if (iParam != mxnetParams.end()) {
-					size_t nNewSize = size_t(nBlobId + 1);
-					nNewSize = std::max(nNewSize, layer.blobs.size());
-					layer.blobs.resize(nNewSize);
-					layer.blobs[nBlobId] = iParam->data;
-				}
-				iInput = inputs.erase(iInput);
-			} else {
-				++iInput;
-			}
-		}
-		if (layer.strType == "BatchNorm") {
-			layer.blobs.resize(3);
-			layer.blobs[2] = {1.0f};
-		}
-	}
-}
-*/
 int main(int nArgCnt, char *ppArgs[]) {
 	ProgramOptions po;
 	if (!ParseArgument(nArgCnt, ppArgs, po)) {
@@ -130,8 +98,10 @@ int main(int nArgCnt, char *ppArgs[]) {
 
 	auto mxnetParseResult = ParseMxnetJson(po.strMxnetJson);
 	auto mxnetParams = LoadMxnetParam(po.strMxnetParams);
-	auto protoNet = MxnetNodes2CaffeLayers(mxnetParseResult.first,
-			mxnetParseResult.second, mxnetParams, po.inputInfos);
+	std::map<std::string, std::vector<std::string>> blobMapping;
+	auto protoNet = MxnetNodes2CaffeNet(
+			mxnetParseResult.first, mxnetParseResult.second,
+			po.inputInfos, blobMapping);
 	protoNet.set_name(GenerateModelName(po.strCaffeProto));
 
 	std::string strProtoBuf;
@@ -144,31 +114,21 @@ int main(int nArgCnt, char *ppArgs[]) {
 	caffe::Net<float> net(protoNet);
 	auto &layers = net.layers();
 	for (auto &netLayer : layers) {
-		std::string strLayerName = netLayer->layer_param().name();
-		auto iProtoLayer = std::find_if(protoNet.layer.begin(),
-				protoNet.layer.end(),
-				[&strLayerName](const caffe::LayerParameter &protoLayer) {
-					std::string strCompose = protoLayer.name() + "_";
-					strCompose = strCompose + strCompose + "0_split";
-					return protoLayer.name() == strLayerName) ||
-							strCompose == strLayerName;
-				}
-			);
-		CHECK(iProtoLayer != protoNet.layer.end());
-		auto &inputs = iProtoLayer->bottom();
-		for (auto &strInputName : inputs) {
-			auto iParam = std::find_if(mxnetParams.begin(),
-					mxnetParams.end(), [&](const MxnetParam &param) {
-						return IsEndWith(param.strName, strInputName);
-					}
-				);
-			if (iParam != mxnetParam.end()) {
-				int nBlobId = GuessBlobIDFromInputName(strInputName);
-				CHECK_GE(nBlobId, 0);
-				CHECK_LT(nBlobId, netLayer.blobs.size());
-				auto &pNetBlob = iParam->blobs()[nBlobId];
+		auto iBlobMap = blobMapping.find(netLayer->layer_param().name());
+		if (iBlobMap != blobMapping.end()) {
+			auto &blobNames = iBlobMap->second;
+			auto &netBlobs = netLayer->blobs();
+			CHECK_EQ(netBlobs.size(), blobNames.size());
+			for (size_t i = 0; i < blobNames.size(); ++i) {
+				auto iParam = std::find_if(mxnetParams.begin(),
+						mxnetParams.end(), [&](const MxnetParam &param) {
+							return IsEndWith(param.strName, blobNames[i]);
+						}
+					);
+				CHECK(iParam != mxnetParams.end());
+				auto &pNetBlob = netBlobs[i];
 				CHECK_EQ(pNetBlob->count(), iParam->data.size());
-				memcpy(pNetBlob->mutable_cpu_data(), iParam->data.size(),
+				memcpy(pNetBlob->mutable_cpu_data(), iParam->data.data(),
 						pNetBlob->count() * sizeof(float));
 			}
 		}

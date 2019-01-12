@@ -35,6 +35,7 @@ bool Attributes::RemoveValue(const std::string &strKey) {
 		return false;
 	}
 	erase(iAttr);
+	return true;
 }
 
 std::vector<StringPair>::iterator Attributes::_Find(

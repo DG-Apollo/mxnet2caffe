@@ -42,6 +42,7 @@ std::pair<_Ty, _Ty> Str2Pair(std::string str,
 	CHECK_LE(ret.first, _max);
 	CHECK_GE(ret.second, _min);
 	CHECK_LE(ret.second, _max);
+	return ret;
 }
 
 template<typename _Ty>
@@ -90,36 +91,37 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		caffeLayer.set_type("Softmax");
 		optionalAttrs["mode"] = [&](std::string strVal) {
 			if (!strVal.empty()) {
-				CHECK(strVal == "instance" || strVal == "channel");
-				caffeLayer.mutable_softmax_param()->set_axis(
-						(strVal == "instance") ? 1 : 0);
+				if (strVal == "channel") {
+					caffeLayer.mutable_softmax_param()->set_axis(0);
+				} else {
+					CHECK(strVal == "instance");
+				}
 			}
 		};
 	} else if (mxnetNode.strOp == "SliceChannel") {
 		caffeLayer.set_type("Slice");
 		requiredAttrs["num_outputs"] = [&](std::string strVal) {
 			cvtInfo.nOutNum = Str2Num<int>(strVal, 2);
-			for (int i = 0; i < cvtInfo.nOutNum; ++i) {
-				caffeLayer.add_top("");
-			}
 		};
 		optionalAttrs["axis"] = [&](std::string strVal) {
 			int nAxis = Str2Num<int>(strVal, 0, 4);
-			caffeLayer.mutable_slice_param()->set_axis(nAxis);
+			if (nAxis != 1) {
+				caffeLayer.mutable_slice_param()->set_axis(nAxis);
+			}
 		};
 		optionalAttrs["squeeze_axis"] = [&](std::string strVal) {
 			bool bSqueeze = Str2Bool(strVal);
 			CHECK(!bSqueeze);
 		};
 	} else if (mxnetNode.strOp == "FullyConnected") {
-		caffeLayer.set_type("Slice");
+		caffeLayer.set_type("InnerProduct");
 		requiredAttrs["num_hidden"] = [&](std::string strVal) {
 			int nNumHid = Str2Num<int>(strVal, 1);
 			caffeLayer.mutable_inner_product_param()->set_num_output(nNumHid);
 		};
 		optionalAttrs["no_bias"] = [&](std::string strVal) {
 			bool bNoBias = Str2Bool(strVal);
-			if (!bNoBias) {
+			if (bNoBias) {
 				caffeLayer.mutable_inner_product_param()->set_bias_term(false);
 			}
 		};
@@ -143,7 +145,9 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		optionalAttrs["stride"] = [&](std::string strVal) {
 			auto stride = Str2Pair<int>(strVal, 1);
 			if (stride.first == stride.second) {
-				convParam.add_stride(stride.first);
+				if (stride.first != 1) {
+					convParam.add_stride(stride.first);
+				}
 			} else {
 				convParam.set_stride_h(stride.first);
 				convParam.set_stride_w(stride.second);
@@ -152,7 +156,9 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		optionalAttrs["pad"] = [&](std::string strVal) {
 			auto pad = Str2Pair<int>(strVal, 0);
 			if (pad.first == pad.second) {
-				convParam.add_pad(pad.first);
+				if (pad.first != 0) {
+					convParam.add_pad(pad.first);
+				}
 			} else {
 				convParam.set_pad_h(pad.first);
 				convParam.set_pad_w(pad.second);
@@ -175,7 +181,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		};
 		optionalAttrs["no_bias"] = [&](std::string strVal) {
 			bool bNoBias = Str2Bool(strVal);
-			if (!bNoBias) {
+			if (bNoBias) {
 				convParam.set_bias_term(false);
 			}
 		};
@@ -189,10 +195,9 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		optionalAttrs["pool_type"] = [&](std::string strVal) {
 			if (strVal == "avg") {
 				poolParam.set_pool(caffe::PoolingParameter_PoolMethod_AVE);
-			} else if(strVal == "max") {
-				poolParam.set_pool(caffe::PoolingParameter_PoolMethod_MAX);
+			} else if(strVal != "max") {
+				LOG(FATAL) << "Unsupported pooling method: " << strVal;
 			}
-			LOG(FATAL) << "Unsupported pooling method: " << strVal;
 		};
 		optionalAttrs["kernel"] = [&](std::string strVal) {
 			auto kernel = Str2Pair<int>(strVal, 0);
@@ -206,7 +211,9 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		optionalAttrs["stride"] = [&](std::string strVal) {
 			auto stride = Str2Pair<int>(strVal, 1);
 			if (stride.first == stride.second) {
-				poolParam.set_stride(stride.first);
+				if (stride.first != 1) {
+					poolParam.set_stride(stride.first);
+				}
 			} else {
 				poolParam.set_stride_h(stride.first);
 				poolParam.set_stride_w(stride.second);
@@ -215,7 +222,9 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		optionalAttrs["pad"] = [&](std::string strVal) {
 			auto pad = Str2Pair<int>(strVal, 0);
 			if (pad.first == pad.second) {
-				poolParam.set_pad(pad.first);
+				if (pad.first != 0) {
+					poolParam.set_pad(pad.first);
+				}
 			} else {
 				poolParam.set_pad_h(pad.first);
 				poolParam.set_pad_w(pad.second);
@@ -272,7 +281,9 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 				iAttr != mxnetNode.attrs.end(); ) {
 			auto iProc = procMap.find(iAttr->first);
 			if (iProc != procMap.end()) {
-				iProc->second(iAttr->second);
+				if (iProc->second != nullptr) {
+					iProc->second(iAttr->second);
+				}
 				iAttr = mxnetNode.attrs.erase(iAttr);
 			} else {
 				iAttr++;
@@ -366,7 +377,8 @@ std::vector<size_t> SortIndicesByDependencies(
 caffe::NetParameter MxnetNodes2CaffeNet(
 		const std::vector<MxnetNode> &mxnetNodes,
 		const std::vector<size_t> &headIndices,
-		const std::vector<InputInfo> &inputInfos) {
+		const std::vector<InputInfo> &inputInfos,
+		std::map<std::string, std::vector<std::string>> &blobMapping) {
 	auto sortedIndices = SortIndicesByDependencies(mxnetNodes, headIndices);
 	std::vector<caffe::LayerParameter> caffeLayers;
 
@@ -399,11 +411,11 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 			CHECK_EQ(cvtInfo.nOutNum, 1);
 			caffeLayer.add_top(caffeLayer.bottom().Get(0));
 		} else {
-			for (size_t i = 0; i < cvtInfo.nOutNum; ++i) {
+			for (int i = 0; i < cvtInfo.nOutNum; ++i) {
 				caffeLayer.add_top(caffeLayer.name());
 			}
 			if (cvtInfo.nOutNum > 1) {
-				for (size_t i = 0; i < cvtInfo.nOutNum; ++i) {
+				for (int i = 0; i < cvtInfo.nOutNum; ++i) {
 					std::string &strTop = *caffeLayer.mutable_top(i);
 					strTop += std::to_string(i);
 				}
@@ -415,7 +427,7 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 	}
 
 	ExpandOrMergeLayers(caffeLayers);
-	
+
 	caffe::NetParameter net;
 	for (auto &layer : caffeLayers) {
 		auto iInputInfo = std::find_if(inputInfos.begin(), inputInfos.end(),
@@ -427,6 +439,18 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 			auto *pShape = layer.mutable_input_param()->add_shape();
 			for (auto d : iInputInfo->second) {
 				pShape->add_dim((int)d);
+			}
+		}
+		auto &bottoms = *layer.mutable_bottom();
+		for (auto iBottom = bottoms.begin(); iBottom != bottoms.end(); ) {
+			int nBlobID = GuessBlobIDFromInputName(*iBottom);
+			if (nBlobID >= 0) {
+				auto &blobVec = blobMapping[layer.name()];
+				blobVec.resize(nBlobID + 1);
+				blobVec[nBlobID] = std::move(*iBottom);
+				iBottom = bottoms.erase(iBottom);
+			} else {
+				++iBottom;
 			}
 		}
 		net.add_layer()->CopyFrom(layer);
