@@ -272,6 +272,36 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		optionalAttrs["cudnn_off"]; // ignored
 		//optionalAttrs["fix_gamma"]; // unsupported
 		//optionalAttrs["axis"]; // unsupported
+	} else if (mxnetNode.strOp == "SoftmaxOutput") {
+		caffeLayer.set_type("SoftmaxWithLoss");
+		optionalAttrs["grad_scale"] = [&](std::string strVal) {
+			LOG(FATAL) << "grad_scale is not supported";
+		};
+		optionalAttrs["ignore_label"] = [&](std::string strVal) {
+			int nIgnoreLabel = Str2Num<int>(strVal, 0);
+			caffeLayer.mutable_loss_param()->set_ignore_label(nIgnoreLabel);
+		};
+		optionalAttrs["multi_output"] = [&](std::string strVal) {
+			bool bMultiOut = Str2Bool(strVal);
+			if (bMultiOut) {
+				//TODO:
+			}
+		};
+		optionalAttrs["normalization"] = [&](std::string strVal) {
+			if (strVal == "batch") {
+				caffeLayer.mutable_loss_param()->set_normalization(
+						caffe::LossParameter_NormalizationMode_BATCH_SIZE);
+			} else if (strVal == "valid") {
+				caffeLayer.mutable_loss_param()->set_normalization(
+						caffe::LossParameter_NormalizationMode_VALID);
+			} else {
+				CHECK(strVal != "null");
+			}
+		};
+		optionalAttrs["preserve_shape"]; // ignored
+		optionalAttrs["use_ignore"]; // ignored
+		//optionalAttrs["out_grad"]; // unsupported
+		//optionalAttrs["smooth_alpha"]; // unsupported
 	} else {
 		LOG(FATAL) << "Unsupported op: " << mxnetNode.strOp;
 	}
@@ -318,7 +348,9 @@ int GuessBlobIDFromInputName(std::string strInputName) {
 void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 	for (auto iLayer = layers.begin(); iLayer != layers.end(); ) {
 		if (iLayer->type() == "BatchNorm") {
-			CHECK_EQ(iLayer->bottom_size(), 5);
+			if (iLayer->bottom_size() == 3) {
+
+			}
 			CHECK_EQ(iLayer->top_size(), 1);
 			std::string strLayerName = iLayer->name();
 			std::string strOutputName = iLayer->top(0);
@@ -458,12 +490,3 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 
 	return net;
 }
-
-bool IsEndWith(const std::string &strString, const std::string &strSuffix) {
-	if (strString.length() >= strSuffix.length()) {
-		return (0 == strString.compare(strString.length() - strSuffix.length(),
-				strSuffix.length(), strSuffix));
-	}
-	return false;
-}
-

@@ -106,7 +106,6 @@ int main(int nArgCnt, char *ppArgs[]) {
 
 	std::string strProtoBuf;
 	proto::TextFormat::PrintToString(protoNet, &strProtoBuf);
-
 	std::ofstream protoFile(po.strCaffeProto);
 	protoFile.write(strProtoBuf.data(), strProtoBuf.size());
 	protoFile.close();
