@@ -1,3 +1,12 @@
+/**
+* Copyright (C) DeepGlint, Inc - All Rights Reserved
+* Unauthorized copying of this file, via any medium is strictly prohibited
+* Proprietary and confidential
+*
+* Parsing json and params files of a MxNet model
+*
+* Written by Devymex <yumengwang@deepglint.com>, Jan. 2019
+*/
 
 #include "mxnet_parser.hpp"
 #include <fstream>

@@ -1,9 +1,12 @@
-/*
- * json_helper.hpp
- *
- *  Created on: Jan 5, 2019
- *      Author: devymex
- */
+/**
+* Copyright (C) DeepGlint, Inc - All Rights Reserved
+* Unauthorized copying of this file, via any medium is strictly prohibited
+* Proprietary and confidential
+*
+* Json helper: Load vector from a json
+*
+* Written by Devymex <yumengwang@deepglint.com>, Jan. 2019
+*/
 
 #ifndef JSON_HELPER_HPP_
 #define JSON_HELPER_HPP_

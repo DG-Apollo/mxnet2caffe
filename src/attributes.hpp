@@ -1,9 +1,15 @@
-/*
- * attributes.hpp
- *
- *  Created on: Jan 5, 2019
- *      Author: devymex
- */
+/**
+* Copyright (C) DeepGlint, Inc - All Rights Reserved
+* Unauthorized copying of this file, via any medium is strictly prohibited
+* Proprietary and confidential
+*
+* Statement of Attributes class.
+*	Attributes is designed for MxNet Nodes and Caffe layers to describe
+*	their Hyperparameters.
+*
+* Written by Devymex <yumengwang@deepglint.com>, Jan. 2019
+*/
+
 
 #ifndef ATTRIBUTES_HPP_
 #define ATTRIBUTES_HPP_

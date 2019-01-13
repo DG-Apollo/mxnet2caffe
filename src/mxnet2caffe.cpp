@@ -1,3 +1,12 @@
+/**
+* Copyright (C) DeepGlint, Inc - All Rights Reserved
+* Unauthorized copying of this file, via any medium is strictly prohibited
+* Proprietary and confidential
+*
+* Mxnet2Caffe: main Function
+*
+* Written by Devymex <yumengwang@deepglint.com>, Jan. 2019
+*/
 
 #include <functional>
 #include <iostream>
