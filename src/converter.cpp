@@ -1,74 +1,446 @@
-/*
- * converter.cpp
- *
- *  Created on: Jan 5, 2019
- *      Author: devymex
- */
+/**
+* Copyright (C) DeepGlint, Inc - All Rights Reserved
+* Unauthorized copying of this file, via any medium is strictly prohibited
+* Proprietary and confidential
+*
+* Conversion from structurized MxNet nodes to a caffe::NetParameter
+*
+* Written by Devymex <yumengwang@deepglint.com>, Jan. 2019
+*/
+
 
 #include "converter.hpp"
 
 #include <algorithm>
 #include <functional>
 #include <numeric>
+
+#define CPU_ONLY
+#include <caffe/caffe.hpp>
+
 #include "logging.hpp"
 #include "istream_helper.hpp"
 
-bool IsEndWith(const std::string &strString, const std::string &strSuffix) {
-	if (strString.length() >= strSuffix.length()) {
-		return (0 == strString.compare(strString.length() - strSuffix.length(),
-				strSuffix.length(), strSuffix));
+template<typename _Ty>
+_Ty Str2Num(std::string str, _Ty _min = std::numeric_limits<_Ty>::min(),
+		_Ty _max = std::numeric_limits<_Ty>::max()) {
+	CHECK(!str.empty());
+	std::istringstream iss(str);
+	_Ty val;
+	CHECK(iss >> val);
+	CHECK_GE(val, _min);
+	CHECK_LE(val, _max);
+	return val;
+}
+
+template<typename _Ty>
+std::pair<_Ty, _Ty> Str2Pair(std::string str,
+		_Ty _min = std::numeric_limits<_Ty>::min(),
+		_Ty _max = std::numeric_limits<_Ty>::max()) {
+	CHECK(!str.empty());
+	std::istringstream iss(str);
+	std::pair<_Ty, _Ty> ret;
+	CHECK(iss >> Expect('(') >> ret.first >> Expect(',') >>
+			ret.second >> Expect(')'));
+	CHECK_GE(ret.first, _min);
+	CHECK_LE(ret.first, _max);
+	CHECK_GE(ret.second, _min);
+	CHECK_LE(ret.second, _max);
+	return ret;
+}
+
+template<typename _Ty>
+_Ty Pair2Num(const std::pair<_Ty, _Ty> &pair) {
+	CHECK_EQ(pair.first, pair.second);
+	return pair.first;
+}
+
+bool Str2Bool(std::string str) {
+	if (str == "True" || str == "true" || str == "1") {
+		return true;
 	}
+	CHECK(str == "False" || str == "false" || str == "0");
 	return false;
 }
 
-std::string Attr_Copy(std::string strSrc) {
-	return strSrc;
-}
+struct ConvertInfo {
+	bool bInPlace;
+	int nOutNum;
+};
 
-std::string Attr_Mode2Axis(std::string strMode) {
-	CHECK(strMode == "instance" || strMode == "channel") <<
-			"Unsupported mode: " << strMode;
-	return strMode == "instance" ? "1" : "0";
-}
+ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
+		caffe::LayerParameter &caffeLayer) {
+	caffeLayer.set_name(std::move(mxnetNode.strName));
+	ConvertInfo cvtInfo = {false, 1};
 
-std::string Attr_Tuple2Num(std::string strTuple) {
-	std::istringstream iss(strTuple);
-	size_t nVal1, nVal2;
-	iss >> Expect('(') >> nVal1 >> Expect(',') >> nVal2 >> Expect(')');
-	CHECK_EQ(nVal1, nVal2);
-	return std::to_string(nVal1);
-}
-
-std::string Attr_Bool(std::string strBool) {
-	std::transform(strBool.begin(), strBool.end(), strBool.begin(), ::tolower);
-	bool bValue;
-	if (strBool == "0" || strBool == "false") {
-		bValue = false;
-	} else if (strBool == "1" || strBool == "true") {
-		bValue = true;
+	using AttrProc = std::function<void(std::string)>;
+	using AttrProcMap = std::map<std::string, AttrProc>;
+	AttrProcMap reqAttrProcs;
+	AttrProcMap optAttrProcs;
+	if (mxnetNode.strOp == "null") {
+		caffeLayer.set_type("Input");
+	} else if (mxnetNode.strOp == "Flatten") {
+		caffeLayer.set_type("Flatten");
+		cvtInfo.bInPlace = true;
+	} else if (mxnetNode.strOp == "Activation") {
+		cvtInfo.bInPlace = true;
+		reqAttrProcs["act_type"] = [&](std::string strVal) {
+			if (strVal == "relu") {
+				caffeLayer.set_type("ReLU");
+			} else {
+				LOG(FATAL);
+			}
+		};
+	} else if (mxnetNode.strOp == "SoftmaxActivation") {
+		caffeLayer.set_type("Softmax");
+		optAttrProcs["mode"] = [&](std::string strVal) {
+			if (!strVal.empty()) {
+				if (strVal == "channel") {
+					caffeLayer.mutable_softmax_param()->set_axis(0);
+				} else {
+					CHECK(strVal == "instance");
+				}
+			}
+		};
+	} else if (mxnetNode.strOp == "softmax") {
+		caffeLayer.set_type("Softmax");
+		optAttrProcs["axis"] = [&](std::string strVal) {
+			int nAxis = Str2Num<int>(strVal, -1, 4);
+			CHECK(nAxis == -1);
+		};
+		optAttrProcs["temperature"] = [&](std::string strVal) {
+			double dTemp = Str2Num<double>(strVal);
+			CHECK (dTemp == 1.0);
+		};
+	} else if (mxnetNode.strOp == "SliceChannel") {
+		caffeLayer.set_type("Slice");
+		reqAttrProcs["num_outputs"] = [&](std::string strVal) {
+			cvtInfo.nOutNum = Str2Num<int>(strVal, 2);
+		};
+		optAttrProcs["axis"] = [&](std::string strVal) {
+			int nAxis = Str2Num<int>(strVal, 0, 4);
+			if (nAxis != 1) {
+				caffeLayer.mutable_slice_param()->set_axis(nAxis);
+			}
+		};
+		optAttrProcs["squeeze_axis"] = [&](std::string strVal) {
+			bool bSqueeze = Str2Bool(strVal);
+			CHECK(!bSqueeze);
+		};
+	} else if (mxnetNode.strOp == "concat" || mxnetNode.strOp == "Concat") {
+		caffeLayer.set_type("Concat");
+		optAttrProcs["dim"] = [&](std::string strVal) {
+			int nDim = Str2Num<int>(strVal, 1);
+			if (nDim != 1) {
+				caffeLayer.mutable_concat_param()->set_axis(nDim);
+			}
+		};
+		optAttrProcs["num_args"]; // ignored
+	} else if (mxnetNode.strOp == "Dropout") {
+		caffeLayer.set_type("Dropout");
+		optAttrProcs["p"] = [&](std::string strVal) {
+			float fRatio = Str2Num<float>(strVal, 0.f, 1.f);
+			if (fRatio != 0.5f) {
+				caffeLayer.mutable_dropout_param()->set_dropout_ratio(fRatio);
+			}
+		};
+		optAttrProcs["axes"]; // ignored
+		optAttrProcs["mode"]; // ignored
+	} else if (mxnetNode.strOp == "FullyConnected") {
+		caffeLayer.set_type("InnerProduct");
+		reqAttrProcs["num_hidden"] = [&](std::string strVal) {
+			int nNumHid = Str2Num<int>(strVal, 1);
+			caffeLayer.mutable_inner_product_param()->set_num_output(nNumHid);
+		};
+		optAttrProcs["no_bias"] = [&](std::string strVal) {
+			bool bNoBias = Str2Bool(strVal);
+			if (bNoBias) {
+				caffeLayer.mutable_inner_product_param()->set_bias_term(false);
+			}
+		};
+		optAttrProcs["flatten"]; // ignored;
+	} else if (mxnetNode.strOp == "Convolution") {
+		caffeLayer.set_type("Convolution");
+		auto &convParam = *caffeLayer.mutable_convolution_param();
+		reqAttrProcs["num_filter"] = [&](std::string strVal) {
+			int nNumChs = Str2Num<int>(strVal, 1);
+			convParam.set_num_output(nNumChs);
+		};
+		reqAttrProcs["kernel"] = [&](std::string strVal) {
+			auto kernel = Str2Pair<int>(strVal, 1);
+			if (kernel.first == kernel.second) {
+				convParam.add_kernel_size(kernel.first);
+			} else {
+				convParam.set_kernel_h(kernel.first);
+				convParam.set_kernel_w(kernel.second);
+			}
+		};
+		optAttrProcs["stride"] = [&](std::string strVal) {
+			auto stride = Str2Pair<int>(strVal, 1);
+			if (stride.first == stride.second) {
+				if (stride.first != 1) {
+					convParam.add_stride(stride.first);
+				}
+			} else {
+				convParam.set_stride_h(stride.first);
+				convParam.set_stride_w(stride.second);
+			}
+		};
+		optAttrProcs["pad"] = [&](std::string strVal) {
+			auto pad = Str2Pair<int>(strVal, 0);
+			if (pad.first == pad.second) {
+				if (pad.first != 0) {
+					convParam.add_pad(pad.first);
+				}
+			} else {
+				convParam.set_pad_h(pad.first);
+				convParam.set_pad_w(pad.second);
+			}
+		};
+		optAttrProcs["dilate"] = [&](std::string strVal) {
+			int nDilate = Pair2Num(Str2Pair<int>(strVal, 0));
+			if (nDilate != 1) {
+				convParam.add_dilation(nDilate);
+			}
+		};
+		optAttrProcs["num_group"] = [&](std::string strVal) {
+			int nNumChs = convParam.num_output();
+			int nNumGroup = Str2Num(strVal, 1, nNumChs);
+			CHECK_EQ(nNumChs % nNumGroup, 0);
+			if (nNumGroup != 1) {
+				int nGroupSize = nNumChs / nNumGroup;
+				convParam.set_group(nGroupSize);
+			}
+		};
+		optAttrProcs["no_bias"] = [&](std::string strVal) {
+			bool bNoBias = Str2Bool(strVal);
+			if (bNoBias) {
+				convParam.set_bias_term(false);
+			}
+		};
+		optAttrProcs["layout"] = [&](std::string strVal) {
+			CHECK(strVal == "None");
+		};
+		optAttrProcs["workspace"]; // ignored
+		optAttrProcs["cudnn_tune"]; // ignored
+		optAttrProcs["cudnn_off"]; // ignored
+	} else if (mxnetNode.strOp == "Pooling") {
+		caffeLayer.set_type("Pooling");
+		auto &poolParam = *caffeLayer.mutable_pooling_param();
+		optAttrProcs["pool_type"] = [&](std::string strVal) {
+			if (strVal == "avg") {
+				poolParam.set_pool(caffe::PoolingParameter_PoolMethod_AVE);
+			} else if(strVal != "max") {
+				LOG(FATAL) << "Unsupported pooling method: " << strVal;
+			}
+		};
+		optAttrProcs["kernel"] = [&](std::string strVal) {
+			if (!poolParam.global_pooling()) {
+				auto kernel = Str2Pair<int>(strVal, 0);
+				if (kernel.first == kernel.second) {
+					poolParam.set_kernel_size(kernel.first);
+				} else {
+					poolParam.set_kernel_h(kernel.first);
+					poolParam.set_kernel_w(kernel.second);
+				}
+			}
+		};
+		optAttrProcs["stride"] = [&](std::string strVal) {
+			auto stride = Str2Pair<int>(strVal, 1);
+			if (stride.first == stride.second) {
+				if (stride.first != 1) {
+					poolParam.set_stride(stride.first);
+				}
+			} else {
+				poolParam.set_stride_h(stride.first);
+				poolParam.set_stride_w(stride.second);
+			}
+		};
+		optAttrProcs["pad"] = [&](std::string strVal) {
+			auto pad = Str2Pair<int>(strVal, 0);
+			if (pad.first == pad.second) {
+				if (pad.first != 0) {
+					poolParam.set_pad(pad.first);
+				}
+			} else {
+				poolParam.set_pad_h(pad.first);
+				poolParam.set_pad_w(pad.second);
+			}
+		};
+		optAttrProcs["global_pool"] = [&](std::string strVal) {
+			bool bGlobalPool = Str2Bool(strVal);
+			if (bGlobalPool) {
+				poolParam.set_global_pooling(true);
+				poolParam.clear_kernel_size();
+			}
+		};
+		optAttrProcs["pooling_convention"] = [&](std::string strVal) {
+			CHECK(strVal == "full");
+		};
+		optAttrProcs["p_value"] = [&](std::string strVal) {
+			LOG(FATAL) << "Lp pooling is not supported";
+		};
+		optAttrProcs["count_include_pad"] = [&](std::string strVal) {
+			LOG(FATAL) << "count_include_pad is not supported";
+		};
+		optAttrProcs["cudnn_off"]; // ignored
+	} else if (mxnetNode.strOp == "elemwise_add" ||
+			mxnetNode.strOp == "_Plus") {
+		caffeLayer.set_type("Eltwise");
+	} else if (mxnetNode.strOp == "elemwise_mul") {
+		caffeLayer.set_type("Eltwise");
+		caffeLayer.mutable_eltwise_param()->set_operation(
+				caffe::EltwiseParameter_EltwiseOp_PROD);
+	} else if (mxnetNode.strOp == "BatchNorm") {
+		caffeLayer.set_type("BatchNorm");
+		auto &bnParam = *caffeLayer.mutable_batch_norm_param();
+		optAttrProcs["eps"] = [&](std::string strVal) {
+			double dEpsilon = Str2Num<double>(strVal, 0., 1.);
+			bnParam.set_eps((float)dEpsilon);
+		};
+		optAttrProcs["use_global_stats"] = [&](std::string strVal) {
+			bool bUseGlobal = Str2Bool(strVal);
+			bnParam.set_use_global_stats(bUseGlobal);
+		};
+		optAttrProcs["momentum"] = [&](std::string strVal) {
+			float fMomentum = Str2Num<float>(strVal);
+			bnParam.set_moving_average_fraction(fMomentum);
+		};
+		optAttrProcs["fix_gamma"] = [&](std::string strVal) {
+			CHECK(strVal == "False" || strVal == "0");
+		};
+		optAttrProcs["axis"] = [&](std::string strVal) {
+			int nAxis = Str2Num<int>(strVal);
+			CHECK(nAxis == 1);
+		};
+		optAttrProcs["output_mean_var"]; // ignored
+		optAttrProcs["cudnn_off"]; // ignored
+		//optAttrProcs["axis"]; // unsupported
+	} else if (mxnetNode.strOp == "SoftmaxOutput") {
+		caffeLayer.set_type("SoftmaxWithLoss");
+		optAttrProcs["grad_scale"] = [&](std::string strVal) {
+			float fGradScale = Str2Num<float>(strVal);
+			CHECK_EQ(fGradScale, 1.0f) << "grad_scale is not supported";
+		};
+		optAttrProcs["ignore_label"] = [&](std::string strVal) {
+			int nIgnoreLabel = Str2Num<int>(strVal, -1);
+			if (nIgnoreLabel != -1) {
+				caffeLayer.mutable_loss_param()->set_ignore_label(nIgnoreLabel);
+			}
+		};
+		optAttrProcs["multi_output"] = [&](std::string strVal) {
+			bool bMultiOut = Str2Bool(strVal);
+			if (bMultiOut) {
+				//TODO:
+			}
+		};
+		optAttrProcs["normalization"] = [&](std::string strVal) {
+			if (strVal == "batch") {
+				caffeLayer.mutable_loss_param()->set_normalization(
+						caffe::LossParameter_NormalizationMode_BATCH_SIZE);
+			} else if (strVal == "valid") {
+				caffeLayer.mutable_loss_param()->set_normalization(
+						caffe::LossParameter_NormalizationMode_VALID);
+			} else {
+				CHECK(strVal == "null");
+			}
+		};
+		optAttrProcs["out_grad"] = [&](std::string strVal) {
+			CHECK(strVal == "False" || strVal == "0");
+		};
+		optAttrProcs["smooth_alpha"] = [&](std::string strVal) {
+			CHECK(strVal == "False" || strVal == "0");
+		};
+		optAttrProcs["preserve_shape"]; // ignored
+		optAttrProcs["use_ignore"]; // ignored
 	} else {
-		LOG(INFO) << "Bad boolean value: " << strBool;
+		LOG(FATAL) << "Unsupported op: " << mxnetNode.strOp;
 	}
-	return (bValue) ? "true" : "false";
+
+	auto ProcAttrs = [&](const AttrProcMap &procMap) {
+		for (auto iAttr = mxnetNode.attrs.begin();
+					iAttr != mxnetNode.attrs.end(); ) {
+				auto iProc = procMap.find(iAttr->first);
+				if (iProc != procMap.end()) {
+					if (iProc->second != nullptr) {
+						iProc->second(iAttr->second);
+					}
+					iAttr = mxnetNode.attrs.erase(iAttr);
+				} else {
+					iAttr++;
+				}
+			}
+		};
+
+	ProcAttrs(reqAttrProcs);
+	ProcAttrs(optAttrProcs);
+	for (auto &attr : mxnetNode.attrs) {
+		LOG(FATAL) << "Unknow attr " << attr.first << " of Op " <<
+				mxnetNode.strOp;
+	}
+	return cvtInfo;
 }
 
-std::string Attr_BoolInv(std::string strBool) {
-	std::transform(strBool.begin(), strBool.end(), strBool.begin(), ::tolower);
-	bool bValue;
-	if (strBool == "0" || strBool == "false") {
-		bValue = true;
-	} else if (strBool == "1" || strBool == "true") {
-		bValue = false;
-	} else {
-		LOG(INFO) << "Bad boolean value: " << strBool;
+int GuessBlobIDFromInputName(std::string strInputName) {
+	using namespace std::placeholders;
+	using SuffixBlobID = std::pair<std::string, size_t>;
+	using SBAry = std::vector<SuffixBlobID>;
+	static SBAry sbAry = {
+			{"weight", 0}, {"gamma", 0}, {"moving_mean", 0},
+			{"bias", 1}, {"beta", 1}, {"moving_var", 1}
+		};
+	auto iSuffix = std::find_if(sbAry.begin(), sbAry.end(),
+			[&](const SuffixBlobID &sb) {
+				return IsEndWith(strInputName, sb.first);
+			}
+		);
+	if (iSuffix == sbAry.end()) {
+		return -1;
 	}
-	return (bValue) ? "true" : "false";
+	return iSuffix->second;
 }
 
-std::string Attr_PoolType(std::string strPool) {
-	CHECK(strPool == "max" || strPool == "avg") <<
-			"Unsupported pooling method: " << strPool;
-	return (strPool == "max") ? "MAX" : "AVE";
+void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
+	for (auto iLayer = layers.begin(); iLayer != layers.end(); ) {
+		if (iLayer->type() == "BatchNorm") {
+			CHECK_GE(iLayer->bottom_size(), 3);
+			CHECK_EQ(iLayer->top_size(), 1);
+			std::string strLayerName = iLayer->name();
+			std::string strOutputName = iLayer->top(0);
+			std::string strInputGamma = iLayer->bottom(1);
+			std::string strInputBeta = iLayer->bottom(2);
+			auto *pBottom = iLayer->mutable_bottom();
+			pBottom->erase(pBottom->begin() + 1, pBottom->begin() + 3);
+			if (iLayer->bottom_size() == 1) {
+				CHECK(IsEndWith(strInputGamma, "_gamma"));
+				CHECK(IsEndWith(strInputBeta, "_beta"));
+				std::string strMean = strInputGamma.substr(0,
+						strInputGamma.size() - 6) + "_moving_mean";
+				std::string strVar = strInputGamma.substr(0,
+						strInputGamma.size() - 6) + "_moving_var";
+				iLayer->add_bottom(strMean);
+				iLayer->add_bottom(strVar);
+			} else {
+				CHECK(iLayer->bottom_size() == 3);
+			}
+
+			iLayer = layers.insert(++iLayer, caffe::LayerParameter());
+			iLayer->set_name(strLayerName + "_scale");
+			iLayer->set_type("Scale");
+			iLayer->add_bottom(strOutputName);
+			iLayer->add_bottom(strInputGamma);
+			iLayer->add_bottom(strInputBeta);
+			iLayer->add_top(strOutputName);
+			iLayer->mutable_scale_param()->set_bias_term(true);
+
+			++iLayer;
+		} else if (iLayer->type() == "Flatten" ||
+				GuessBlobIDFromInputName(iLayer->name()) >= 0) {
+			iLayer = layers.erase(iLayer);
+		} else {
+			++iLayer;
+		}
+	}
 }
 
 std::vector<size_t> SortIndicesByDependencies(
@@ -99,208 +471,25 @@ std::vector<size_t> SortIndicesByDependencies(
 	return std::move(results);
 }
 
-struct LayerFlags {
-	bool bInPlace;
-	size_t nOutNum;
-};
-
-std::pair<CaffeLayer, LayerFlags> MxnetNode2CaffeLayer(
-		const MxnetNode &mxnetNode) {
-	CaffeLayer caffeLayer;
-	LayerFlags layerFlags;
-
-	caffeLayer.strName = mxnetNode.strName;
-
-	auto AttrMxnet2Caffe = [&](const std::string &strMxnetKey,
-			const std::string &strCaffeKey,
-			std::function<std::string(std::string)> converter,
-			bool bRequired) {
-		std::string strVal = mxnetNode.attrs.GetValue(strMxnetKey, bRequired);
-		if (!strVal.empty()) {
-			caffeLayer.params.emplace_back(strCaffeKey, converter(strVal));
-		}
-	};
-
-	layerFlags.bInPlace = false;
-	layerFlags.nOutNum = 1;
-	if (mxnetNode.strOp == "null") {
-		caffeLayer.strType = "Input";
-	} else if (mxnetNode.strOp == "Flatten") {
-		caffeLayer.strType = "Flatten";
-		layerFlags.bInPlace = true;
-	} else if (mxnetNode.strOp == "Activation") {
-		std::string strActType = mxnetNode.attrs.GetValue("act_type", true);
-		if (strActType == "relu") {
-			caffeLayer.strType = "ReLU";
-		} else {
-			LOG(FATAL) << "Activation type " <<
-					strActType << " not supported";
-		}
-		layerFlags.bInPlace = true;
-	} else if (mxnetNode.strOp == "SoftmaxActivation") {
-		caffeLayer.strType = "Softmax";
-		caffeLayer.strParamName = "softmax_param";
-		AttrMxnet2Caffe("mode", "axis", Attr_Mode2Axis, false);
-	} else if (mxnetNode.strOp == "SliceChannel") {
-		caffeLayer.strType = "Slice";
-		caffeLayer.strParamName = "slice_param";
-		std::string strNumOut = mxnetNode.attrs.GetValue("num_outputs", true);
-		layerFlags.nOutNum = std::atoi(strNumOut.c_str());
-		CHECK_GT(layerFlags.nOutNum, 1);
-		AttrMxnet2Caffe("axis", "axis", Attr_Copy, false);
-	} else if (mxnetNode.strOp == "FullyConnected") {
-		caffeLayer.strType = "InnerProduct";
-		caffeLayer.strParamName = "inner_product_param";
-		AttrMxnet2Caffe("num_hidden", "num_output", Attr_Copy, true);
-		AttrMxnet2Caffe("no_bias", "bias_term", Attr_BoolInv, true);
-	} else if (mxnetNode.strOp == "Convolution") {
-		caffeLayer.strType = "Convolution";
-		caffeLayer.strParamName = "convolution_param";
-		AttrMxnet2Caffe("num_filter", "num_output", Attr_Copy, true);
-		AttrMxnet2Caffe("no_bias", "bias_term", Attr_BoolInv, true);
-		AttrMxnet2Caffe("kernel", "kernel_size", Attr_Tuple2Num, true);
-		AttrMxnet2Caffe("dilate", "dilation", Attr_Tuple2Num, false);
-		AttrMxnet2Caffe("pad", "pad", Attr_Tuple2Num, false);
-		AttrMxnet2Caffe("stride", "stride", Attr_Tuple2Num, false);
-		AttrMxnet2Caffe("num_group", "group", Attr_Copy, false);
-	} else if (mxnetNode.strOp == "Pooling") {
-		caffeLayer.strType = "Pooling";
-		caffeLayer.strParamName = "pooling_param";
-		AttrMxnet2Caffe("kernel", "kernel_size", Attr_Tuple2Num, true);
-		AttrMxnet2Caffe("stride", "stride", Attr_Tuple2Num, false);
-		AttrMxnet2Caffe("pad", "pad", Attr_Tuple2Num, false);
-		AttrMxnet2Caffe("global_pool", "global_pooling",
-				Attr_Bool, false);
-		AttrMxnet2Caffe("pool_type", "pool", Attr_PoolType, false);
-		if (caffeLayer.params.GetValue("global_pooling", false) == "true") {
-			caffeLayer.params.RemoveValue("kernel_size");
-			caffeLayer.params.RemoveValue("stride");
-			caffeLayer.params.RemoveValue("pad");
-		} else {
-			caffeLayer.params.RemoveValue("global_pooling");
-		}
-		std::string strActType = mxnetNode.attrs.GetValue(
-				"pooling_convention", false);
-		if (strActType != "full") {
-			LOG(WARNING) << "pooling attribute \"pooling_convention\""
-					" != \"full\", converted model may not work properly!";
-		}
-	} else if (mxnetNode.strOp == "elemwise_add") {
-		caffeLayer.strType = "Eltwise";
-		caffeLayer.strParamName = "eltwise_param";
-		caffeLayer.params.emplace_back("operation", "SUM");
-	} else if (mxnetNode.strOp == "BatchNorm") {
-		caffeLayer.strType = "BatchNorm";
-		caffeLayer.strParamName = "batch_norm_param";
-		AttrMxnet2Caffe("use_global_stats", "use_global_stats",
-				Attr_Bool, false);
-	} else {
-		LOG(FATAL) << "Unsupported op: " << mxnetNode.strOp;
-	}
-	return std::make_pair(std::move(caffeLayer), layerFlags);
-}
-
-int GuessBlobIDFromInputName(std::string strInputName) {
-	using namespace std::placeholders;
-	using SuffixBlobID = std::pair<std::string, size_t>;
-	using SBAry = std::vector<SuffixBlobID>;
-	static SBAry sbAry = {
-			{"weight", 0}, {"gamma", 0}, {"moving_mean", 0},
-			{"bias", 1}, {"beta", 1}, {"moving_var", 1}
-		};
-	auto iSuffix = std::find_if(sbAry.begin(), sbAry.end(),
-			[&](const SuffixBlobID &sb) {
-				return IsEndWith(strInputName, sb.first);
-			}
-		);
-	if (iSuffix == sbAry.end()) {
-		return -1;
-	}
-	return iSuffix->second;
-}
-
-void ExpandOrMergeLayers(std::vector<CaffeLayer> &layers) {
-	for (auto iLayer = layers.begin(); iLayer != layers.end(); ) {
-		if (iLayer->strType == "BatchNorm") {
-			CHECK_EQ(iLayer->inputs.size(), 5);
-			CHECK_EQ(iLayer->outputs.size(), 1);
-			std::string strLayerName = iLayer->strName;
-			std::string strOutputName = iLayer->outputs[0];
-			std::string strInputGamma = iLayer->inputs[1];
-			std::string strInputBeta = iLayer->inputs[2];
-			iLayer->inputs.erase(iLayer->inputs.begin() + 1,
-					iLayer->inputs.begin() + 3);
-
-			iLayer = layers.insert(++iLayer, CaffeLayer());
-			iLayer->strName = strLayerName + "_scale";
-			iLayer->strType = "Scale";
-			iLayer->strParamName = "scale_param";
-			iLayer->inputs.push_back(strOutputName);
-			iLayer->inputs.push_back(strInputGamma);
-			iLayer->inputs.push_back(strInputBeta);
-			iLayer->outputs.push_back(strOutputName);
-			iLayer->params.emplace_back("bias_term", "true");
-
-			++iLayer;
-		} else if (iLayer->strType == "Flatten" ||
-				GuessBlobIDFromInputName(iLayer->strName) >= 0) {
-			iLayer = layers.erase(iLayer);
-		} else {
-			++iLayer;
-		}
-	}
-}
-
-void AssignBlobs(std::vector<CaffeLayer> &layers,
-		const std::vector<MxnetParam> &mxnetParams) {
-	for (auto &layer : layers) {
-		auto &inputs = layer.inputs;
-		for (auto iInput = inputs.begin(); iInput != inputs.end(); ) {
-			int nBlobId = GuessBlobIDFromInputName(*iInput);
-			if (nBlobId >= 0) {
-				auto iParam = std::find_if(mxnetParams.begin(),
-						mxnetParams.end(), [&](const MxnetParam &param) {
-							return IsEndWith(param.strName, *iInput);
-						}
-					);
-				if (iParam != mxnetParams.end()) {
-					size_t nNewSize = size_t(nBlobId + 1);
-					nNewSize = std::max(nNewSize, layer.blobs.size());
-					layer.blobs.resize(nNewSize);
-					layer.blobs[nBlobId] = iParam->data;
-				}
-				iInput = inputs.erase(iInput);
-			} else {
-				++iInput;
-			}
-		}
-		if (layer.strType == "BatchNorm") {
-			layer.blobs.resize(3);
-			layer.blobs[2] = {1.0f};
-		}
-	}
-}
-
-std::vector<CaffeLayer> MxnetNodes2CaffeLayers(
+caffe::NetParameter MxnetNodes2CaffeNet(
 		const std::vector<MxnetNode> &mxnetNodes,
 		const std::vector<size_t> &headIndices,
-		const std::vector<MxnetParam> &mxnetParams,
-		const std::vector<InputInfo> &inputInfos) {
+		const std::vector<InputInfo> &inputInfos,
+		std::map<std::string, std::vector<std::string>> &blobMapping) {
 	auto sortedIndices = SortIndicesByDependencies(mxnetNodes, headIndices);
-	std::vector<CaffeLayer> caffeLayers(mxnetNodes.size());
+	std::vector<caffe::LayerParameter> caffeLayers;
 
 	std::map<std::string, size_t> typeCnt; // for unamed layers
 	for (size_t i = 0; i < sortedIndices.size(); ++i) {
 		auto &mxnetNode = mxnetNodes[sortedIndices[i]];
-		auto convertResult = MxnetNode2CaffeLayer(mxnetNode);
-		auto &caffeLayer = convertResult.first;
-		auto &layerFlags = convertResult.second;
+		caffe::LayerParameter caffeLayer;
+		auto cvtInfo = MxnetNode2CaffeLayer(mxnetNode, caffeLayer);
 
 		// to give unamed layer a name
-		if (caffeLayer.strName.empty()) {
-			size_t nTypeCnt = ++typeCnt[caffeLayer.strType];
-			caffeLayer.strName = "_unamed_" + caffeLayer.strType +
-					std::to_string(nTypeCnt);
+		if (caffeLayer.name().empty()) {
+			size_t nTypeCnt = ++typeCnt[caffeLayer.type()];
+			caffeLayer.set_name("_unamed_" + caffeLayer.type() +
+					std::to_string(nTypeCnt));
 		}
 
 		// convert inputs
@@ -309,42 +498,71 @@ std::vector<CaffeLayer> MxnetNodes2CaffeLayers(
 					sortedIndices.end(), mxnetIdx.first);
 			CHECK(iCaffeIdx != sortedIndices.end());
 			CHECK_LT(*iCaffeIdx, i);
-			auto &prevOutputs = caffeLayers[*iCaffeIdx].outputs;
+			auto &prevOutputs = caffeLayers[*iCaffeIdx].top();
 			CHECK_LT(mxnetIdx.second, prevOutputs.size());
-			caffeLayer.inputs.push_back(prevOutputs[mxnetIdx.second]);
+			caffeLayer.add_bottom(prevOutputs.Get(mxnetIdx.second));
 		}
 
 		// Convert outputs
-		if (layerFlags.bInPlace) {
-			CHECK_EQ(layerFlags.nOutNum, 1);
-			caffeLayer.outputs.push_back(caffeLayer.inputs.front());
+		if (cvtInfo.bInPlace) {
+			CHECK_EQ(cvtInfo.nOutNum, 1);
+			caffeLayer.add_top(caffeLayer.bottom().Get(0));
 		} else {
-			caffeLayer.outputs.resize(layerFlags.nOutNum, caffeLayer.strName);
-			if (layerFlags.nOutNum > 1) {
-				for (size_t i = 0; i < layerFlags.nOutNum; ++i) {
-					caffeLayer.outputs[i] += std::to_string(i);
+			for (int i = 0; i < cvtInfo.nOutNum; ++i) {
+				caffeLayer.add_top(caffeLayer.name());
+			}
+			if (cvtInfo.nOutNum > 1) {
+				for (int i = 0; i < cvtInfo.nOutNum; ++i) {
+					std::string &strTop = *caffeLayer.mutable_top(i);
+					strTop += std::to_string(i);
 				}
 			}
 		}
 
 		// Put this layer to vector
-		caffeLayers[i] = std::move(caffeLayer);
+		caffeLayers.emplace_back(std::move(caffeLayer));
 	}
 
 	ExpandOrMergeLayers(caffeLayers);
-
-	AssignBlobs(caffeLayers, mxnetParams);
-	
+	caffe::NetParameter net;
 	for (auto &layer : caffeLayers) {
 		auto iInputInfo = std::find_if(inputInfos.begin(), inputInfos.end(),
 				[&](const InputInfo &ii) {
-					return (layer.strName == ii.first);
+					return (layer.name() == ii.first);
 				}
 			);
 		if (iInputInfo != inputInfos.end()) {
-			layer.inputShape = iInputInfo->second;
+			auto *pShape = layer.mutable_input_param()->add_shape();
+			for (auto d : iInputInfo->second) {
+				pShape->add_dim((int)d);
+			}
+		} else {
+			CHECK_GT(layer.bottom_size(), 0) << "Unmarked input node: " <<
+					layer.name();
 		}
+		auto &bottoms = *layer.mutable_bottom();
+		for (auto iBottom = bottoms.begin(); iBottom != bottoms.end(); ) {
+			int nBlobID = GuessBlobIDFromInputName(*iBottom);
+			if (nBlobID >= 0) {
+				auto &blobVec = blobMapping[layer.name()];
+				blobVec.resize(nBlobID + 1);
+				blobVec[nBlobID] = std::move(*iBottom);
+				iBottom = bottoms.erase(iBottom);
+			} else {
+				++iBottom;
+			}
+		}
+		net.add_layer()->CopyFrom(layer);
 	}
+	LOG(INFO) << caffeLayers[1].name();
 
-	return caffeLayers;
+	return net;
+}
+
+bool IsEndWith(const std::string &strString, const std::string &strSuffix) {
+	if (strString.length() >= strSuffix.length()) {
+		return (0 == strString.compare(strString.length() - strSuffix.length(),
+				strSuffix.length(), strSuffix));
+	}
+	return false;
 }

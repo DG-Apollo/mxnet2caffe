@@ -1,3 +1,12 @@
+/**
+* Copyright (C) DeepGlint, Inc - All Rights Reserved
+* Unauthorized copying of this file, via any medium is strictly prohibited
+* Proprietary and confidential
+*
+* Parsing json and params files of a MxNet model
+*
+* Written by Devymex <yumengwang@deepglint.com>, Jan. 2019
+*/
 
 #include "mxnet_parser.hpp"
 #include <fstream>
@@ -12,7 +21,7 @@ MxnetNode ParseMxnetNode(Json::iterator jNode) {
 			node.strOp = jField.value();
 		} else if (jField.key() == "name") {
 			node.strName = jField.value();
-		} else if (jField.key() == "attrs") {
+		} else if (jField.key() == "attrs" || jField.key() == "param") {
 			node.attrs = ParseArray<StringPair>(jField,
 					[](Json::iterator jAttr) {
 						return std::make_pair(jAttr.key(), jAttr.value());
@@ -22,7 +31,8 @@ MxnetNode ParseMxnetNode(Json::iterator jNode) {
 					[](Json::iterator jInput) {
 						CHECK(jInput->is_array());
 						auto inputIndices = ParseArray<size_t>(jInput);
-						CHECK_EQ(inputIndices.size(), 3U);
+						CHECK_LE(inputIndices.size(), 3U);
+						CHECK_GE(inputIndices.size(), 2U);
 						return std::make_pair(inputIndices[0], inputIndices[1]);
 					});
 		}
@@ -121,7 +131,7 @@ std::vector<MxnetParam> LoadMxnetParam(std::string strModelFn) {
 		MxnetParam p;
 		p.data.resize(len);
 		fread(&p.data[0], 1, len * sizeof(float), fp);
-		params.push_back(p);
+		params.emplace_back(std::move(p));
 	}
 	uint64_t name_count;
 	fread(&name_count, 1, sizeof(uint64_t), fp);
@@ -137,6 +147,7 @@ std::vector<MxnetParam> LoadMxnetParam(std::string strModelFn) {
 		if (memcmp(p.strName.c_str(), "aux:", 4) == 0) {
 			p.strName = std::string(p.strName.c_str() + 4);
 		}
+		LOG(INFO) << p.strName;
 	}
 
 	fclose(fp);

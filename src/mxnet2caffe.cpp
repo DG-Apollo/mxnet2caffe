@@ -1,19 +1,26 @@
-
-#define CPU_ONLY
+/**
+* Copyright (C) DeepGlint, Inc - All Rights Reserved
+* Unauthorized copying of this file, via any medium is strictly prohibited
+* Proprietary and confidential
+*
+* Mxnet2Caffe: main Function
+*
+* Written by Devymex <yumengwang@deepglint.com>, Jan. 2019
+*/
 
 #include <functional>
 #include <iostream>
 #include <fstream>
-#include <caffe/caffe.hpp>
 #include <map>
+#include <google/protobuf/text_format.h>
 
 #include "logging.hpp"
 #include "common.hpp"
 #include "json_helper.hpp"
 #include "mxnet_parser.hpp"
-#include "caffe_layer.hpp"
 #include "converter.hpp"
 
+namespace proto = google::protobuf;
 using InputInfo = std::pair<std::string, Shape>;
 
 struct ProgramOptions {
@@ -100,54 +107,50 @@ int main(int nArgCnt, char *ppArgs[]) {
 
 	auto mxnetParseResult = ParseMxnetJson(po.strMxnetJson);
 	auto mxnetParams = LoadMxnetParam(po.strMxnetParams);
-	auto caffeLayers = MxnetNodes2CaffeLayers(mxnetParseResult.first,
-			mxnetParseResult.second, mxnetParams, po.inputInfos);
+	std::map<std::string, std::vector<std::string>> blobMapping;
+	auto protoNet = MxnetNodes2CaffeNet(
+			mxnetParseResult.first, mxnetParseResult.second,
+			po.inputInfos, blobMapping);
+	protoNet.set_name(GenerateModelName(po.strCaffeProto));
 
+	std::string strProtoBuf;
+	proto::TextFormat::PrintToString(protoNet, &strProtoBuf);
 	std::ofstream protoFile(po.strCaffeProto);
-	protoFile << "name: \"" << GenerateModelName(po.strCaffeProto) << "\"\n";
-	for (auto &l : caffeLayers) {
-		protoFile << l;
-	}
+	protoFile.write(strProtoBuf.data(), strProtoBuf.size());
 	protoFile.close();
 
-	caffe::NetParameter netParams;
-	caffe::ReadProtoFromTextFile(po.strCaffeProto.c_str(), &netParams);
-	caffe::Net<float> net(netParams);
-	auto layers = net.layers();
-	for (auto &protoLayer : layers) {
-		std::string strLayerName = protoLayer->layer_param().name();
-		auto iCaffeLayer = std::find_if(caffeLayers.begin(), caffeLayers.end(),
-				[&strLayerName](const CaffeLayer &layer) {
-					return layer.strName == strLayerName;
-				}
-			);
-		if (iCaffeLayer == caffeLayers.end()) {
-			iCaffeLayer = std::find_if(caffeLayers.begin(), caffeLayers.end(),
-					[&strLayerName](const CaffeLayer &layer) {
-						std::string strCompose = layer.strName + "_";
-						strCompose = strCompose + strCompose + "0_split";
-						return (strCompose == strLayerName);
-					}
-				);
-		}
-		CHECK(iCaffeLayer != caffeLayers.end()) << strLayerName;
-		auto &protoBlobs = protoLayer->blobs();
-		if (iCaffeLayer->blobs.size() != protoBlobs.size()) {
-			LOG(WARNING) << "We expect the layer \"" << strLayerName <<
-					"\" having " << iCaffeLayer->blobs.size() << " blobs, " <<
-					"but caffe tell us it is " << protoBlobs.size();
-		} else {
-			for (size_t i = 0; i < protoBlobs.size(); ++i) {
-				CHECK_EQ(protoBlobs[i]->count(), iCaffeLayer->blobs[i].size());
-				memcpy(protoBlobs[i]->mutable_cpu_data(),
-						iCaffeLayer->blobs[i].data(),
-						protoBlobs[i]->count() * sizeof(float));
+	caffe::Net<float> net(protoNet);
+	auto &layers = net.layers();
+	for (auto &netLayer : layers) {
+		auto iBlobMap = blobMapping.find(netLayer->layer_param().name());
+		if (iBlobMap != blobMapping.end()) {
+			auto &blobNames = iBlobMap->second;
+			auto &netBlobs = netLayer->blobs();
+			if (std::string(netLayer->type()) == "BatchNorm") {
+				CHECK_EQ(netBlobs.size(), 3);
+				CHECK_EQ(blobNames.size(), 2);
+				CHECK_EQ(netBlobs[2]->count(), 1);
+				*(netBlobs[2]->mutable_cpu_data()) = 1.0f;
+			} else {
+				CHECK_EQ(netBlobs.size(), blobNames.size());
+			}
+			for (size_t i = 0; i < blobNames.size(); ++i) {
+				auto iMxnetParam = std::find_if(mxnetParams.begin(),
+						mxnetParams.end(), [&](const MxnetParam &param) {
+							return param.strName == blobNames[i];
+						}
+					);
+				CHECK(iMxnetParam != mxnetParams.end());
+				auto &pNetBlob = netBlobs[i];
+				CHECK_EQ(pNetBlob->count(), iMxnetParam->data.size());
+				memcpy(pNetBlob->mutable_cpu_data(), iMxnetParam->data.data(),
+						pNetBlob->count() * sizeof(float));
 			}
 		}
 	}
 
-	net.ToProto(&netParams, false);
-	caffe::WriteProtoToBinaryFile(netParams, po.strCaffeModel.c_str());
+	net.ToProto(&protoNet, false);
+	caffe::WriteProtoToBinaryFile(protoNet, po.strCaffeModel.c_str());
 
 	return 0;
 }

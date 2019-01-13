@@ -1,6 +1,6 @@
 # FindCaffe.cmake
 # ------------
-#	You can specify the path to caffe files in CAFFE_HOME
+#	You can specify the path to caffe files in CAFFE_INSTALL_DIR
 #
 #	This will define the following variables:
 #	CAFFE_FOUND			- True if the system has the Inference Engine library
@@ -9,10 +9,10 @@
 
 INCLUDE(FindPackageHandleStandardArgs)
 
-IF(NOT "${CAFFE_HOME}" STREQUAL "")
-	SET(CAFFE_HOME_HINTS "${CAFFE_HOME}/build/install" "${CAFFE_HOME}")
+IF(NOT "${CAFFE_INSTALL_DIR}" STREQUAL "")
+	SET(CAFFE_INSTALL_DIR_HINTS "${CAFFE_INSTALL_DIR}/build/install" "${CAFFE_INSTALL_DIR}")
 ELSEIF()
-	SET(CAFFE_HOME_HINTS "/usr" "/usr/local")
+	SET(CAFFE_INSTALL_DIR_HINTS "/usr" "/usr/local")
 ENDIF()
 
 FIND_PATH(CAFFE_INCLUDE_DIR
@@ -22,7 +22,7 @@ FIND_PATH(CAFFE_INCLUDE_DIR
 		caffe/net.hpp
 		caffe/util/io.hpp
 	PATH_SUFFIXES include
-	HINTS ${CAFFE_HOME_HINTS}
+	HINTS ${CAFFE_INSTALL_DIR_HINTS}
 	)
 SET(CAFFE_INCLUDE_DIRS ${CAFFE_INCLUDE_DIR})
 
@@ -31,7 +31,7 @@ IF (NOT EXISTS "${CAFFE_INCLUDE_DIR}/${CAFFE_PROTO_HEADER}")
 	FIND_PATH(CAFFE_PROTO_HEADER_DIR
 		NAMES caffe/proto/caffe.pb.h
 		PATH_SUFFIXES include
-		HINTS ${CAFFE_HOME_HINTS}
+		HINTS ${CAFFE_INSTALL_DIR_HINTS}
 		)
 	IF (NOT ${CAFFE_PROTO_HEADER_DIR})
 		MESSAGE(WARNING "${CAFFE_PROTO_HEADER} not found")
@@ -44,7 +44,7 @@ ENDIF()
 FIND_LIBRARY(CAFFE_LIBRARIES
 	NAMES caffe
 	PATH_SUFFIXES lib
-	HINTS ${CAFFE_HOME_HINTS}
+	HINTS ${CAFFE_INSTALL_DIR_HINTS}
 	)
 
 FIND_PACKAGE_HANDLE_STANDARD_ARGS(Caffe

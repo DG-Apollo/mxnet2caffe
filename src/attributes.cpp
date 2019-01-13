@@ -1,9 +1,13 @@
-/*
- * attributes.cpp
- *
- *  Created on: Jan 5, 2019
- *      Author: devymex
- */
+/**
+* Copyright (C) DeepGlint, Inc - All Rights Reserved
+* Unauthorized copying of this file, via any medium is strictly prohibited
+* Proprietary and confidential
+*
+* Implatementation of Attributes class
+*
+* Written by Devymex <yumengwang@deepglint.com>, Jan. 2019
+*/
+
 
 #include "attributes.hpp"
 #include <algorithm>
@@ -35,6 +39,7 @@ bool Attributes::RemoveValue(const std::string &strKey) {
 		return false;
 	}
 	erase(iAttr);
+	return true;
 }
 
 std::vector<StringPair>::iterator Attributes::_Find(
