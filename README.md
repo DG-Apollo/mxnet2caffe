@@ -6,6 +6,12 @@
 
 ## Required Packages
 [BVLC/Caffe](https://github.com/BVLC/caffe)
+You must clearly know the absolute path where the caffe installed. If you believe your caffe has installed in `YOUR_CAFFE_INSTALL_DIR`, like `/usr/local`, try to verify the caffe files do really exsist:
+```
+ls YOUR_CAFFE_INSTALL_DIR/include/caffe/caffe.hpp
+ls YOUR_CAFFE_INSTALL_DIR/lib/libcaffe.so
+```
+Please DO NOT complain any building failure before you did above confirmation yet.
 
 ## Build
 ```
@@ -34,6 +40,8 @@ Mxnet2Caffe use an independent config json file to describe your model and tell 
     ]
 }
 ```
+Find more examples in sub-path `./examples`.
+
 ### Properties used by the config json:
 It should be very clear in the above example.
 
