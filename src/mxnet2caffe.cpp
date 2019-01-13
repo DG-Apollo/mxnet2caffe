@@ -117,17 +117,24 @@ int main(int nArgCnt, char *ppArgs[]) {
 		if (iBlobMap != blobMapping.end()) {
 			auto &blobNames = iBlobMap->second;
 			auto &netBlobs = netLayer->blobs();
-			CHECK_EQ(netBlobs.size(), blobNames.size());
+			if (std::string(netLayer->type()) == "BatchNorm") {
+				CHECK_EQ(netBlobs.size(), 3);
+				CHECK_EQ(blobNames.size(), 2);
+				CHECK_EQ(netBlobs[2]->count(), 1);
+				*(netBlobs[2]->mutable_cpu_data()) = 1.0f;
+			} else {
+				CHECK_EQ(netBlobs.size(), blobNames.size());
+			}
 			for (size_t i = 0; i < blobNames.size(); ++i) {
-				auto iParam = std::find_if(mxnetParams.begin(),
+				auto iMxnetParam = std::find_if(mxnetParams.begin(),
 						mxnetParams.end(), [&](const MxnetParam &param) {
-							return IsEndWith(param.strName, blobNames[i]);
+							return param.strName == blobNames[i];
 						}
 					);
-				CHECK(iParam != mxnetParams.end());
+				CHECK(iMxnetParam != mxnetParams.end());
 				auto &pNetBlob = netBlobs[i];
-				CHECK_EQ(pNetBlob->count(), iParam->data.size());
-				memcpy(pNetBlob->mutable_cpu_data(), iParam->data.data(),
+				CHECK_EQ(pNetBlob->count(), iMxnetParam->data.size());
+				memcpy(pNetBlob->mutable_cpu_data(), iMxnetParam->data.data(),
 						pNetBlob->count() * sizeof(float));
 			}
 		}

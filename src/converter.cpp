@@ -71,8 +71,8 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 
 	using AttrProc = std::function<void(std::string)>;
 	using AttrProcMap = std::map<std::string, AttrProc>;
-	AttrProcMap requiredAttrs;
-	AttrProcMap optionalAttrs;
+	AttrProcMap reqAttrProcs;
+	AttrProcMap optAttrProcs;
 	if (mxnetNode.strOp == "null") {
 		caffeLayer.set_type("Input");
 	} else if (mxnetNode.strOp == "Flatten") {
@@ -80,7 +80,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		cvtInfo.bInPlace = true;
 	} else if (mxnetNode.strOp == "Activation") {
 		cvtInfo.bInPlace = true;
-		requiredAttrs["act_type"] = [&](std::string strVal) {
+		reqAttrProcs["act_type"] = [&](std::string strVal) {
 			if (strVal == "relu") {
 				caffeLayer.set_type("ReLU");
 			} else {
@@ -89,7 +89,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		};
 	} else if (mxnetNode.strOp == "SoftmaxActivation") {
 		caffeLayer.set_type("Softmax");
-		optionalAttrs["mode"] = [&](std::string strVal) {
+		optAttrProcs["mode"] = [&](std::string strVal) {
 			if (!strVal.empty()) {
 				if (strVal == "channel") {
 					caffeLayer.mutable_softmax_param()->set_axis(0);
@@ -98,42 +98,52 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 				}
 			}
 		};
+	} else if (mxnetNode.strOp == "softmax") {
+		caffeLayer.set_type("Softmax");
+		optAttrProcs["axis"] = [&](std::string strVal) {
+			int nAxis = Str2Num<int>(strVal, -1, 4);
+			CHECK(nAxis == -1);
+		};
+		optAttrProcs["temperature"] = [&](std::string strVal) {
+			double dTemp = Str2Num<double>(strVal);
+			CHECK (dTemp == 1.0);
+		};
 	} else if (mxnetNode.strOp == "SliceChannel") {
 		caffeLayer.set_type("Slice");
-		requiredAttrs["num_outputs"] = [&](std::string strVal) {
+		reqAttrProcs["num_outputs"] = [&](std::string strVal) {
 			cvtInfo.nOutNum = Str2Num<int>(strVal, 2);
 		};
-		optionalAttrs["axis"] = [&](std::string strVal) {
+		optAttrProcs["axis"] = [&](std::string strVal) {
 			int nAxis = Str2Num<int>(strVal, 0, 4);
 			if (nAxis != 1) {
 				caffeLayer.mutable_slice_param()->set_axis(nAxis);
 			}
 		};
-		optionalAttrs["squeeze_axis"] = [&](std::string strVal) {
+		optAttrProcs["squeeze_axis"] = [&](std::string strVal) {
 			bool bSqueeze = Str2Bool(strVal);
 			CHECK(!bSqueeze);
 		};
 	} else if (mxnetNode.strOp == "FullyConnected") {
 		caffeLayer.set_type("InnerProduct");
-		requiredAttrs["num_hidden"] = [&](std::string strVal) {
+		reqAttrProcs["num_hidden"] = [&](std::string strVal) {
 			int nNumHid = Str2Num<int>(strVal, 1);
 			caffeLayer.mutable_inner_product_param()->set_num_output(nNumHid);
 		};
-		optionalAttrs["no_bias"] = [&](std::string strVal) {
+		optAttrProcs["no_bias"] = [&](std::string strVal) {
 			bool bNoBias = Str2Bool(strVal);
 			if (bNoBias) {
 				caffeLayer.mutable_inner_product_param()->set_bias_term(false);
 			}
 		};
-		optionalAttrs["flatten"]; // ignored;
+		optAttrProcs["flatten"]; // ignored;
 	} else if (mxnetNode.strOp == "Convolution") {
 		caffeLayer.set_type("Convolution");
 		auto &convParam = *caffeLayer.mutable_convolution_param();
-		requiredAttrs["num_filter"] = [&](std::string strVal) {
+		reqAttrProcs["num_filter"] = [&](std::string strVal) {
 			int nNumChs = Str2Num<int>(strVal, 1);
 			convParam.set_num_output(nNumChs);
 		};
-		requiredAttrs["kernel"] = [&](std::string strVal) {
+		reqAttrProcs["kernel"] = [&](std::string strVal) {
 			auto kernel = Str2Pair<int>(strVal, 1);
 			if (kernel.first == kernel.second) {
 				convParam.add_kernel_size(kernel.first);
@@ -142,7 +152,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 				convParam.set_kernel_w(kernel.second);
 			}
 		};
-		optionalAttrs["stride"] = [&](std::string strVal) {
+		optAttrProcs["stride"] = [&](std::string strVal) {
 			auto stride = Str2Pair<int>(strVal, 1);
 			if (stride.first == stride.second) {
 				if (stride.first != 1) {
@@ -153,7 +163,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 				convParam.set_stride_w(stride.second);
 			}
 		};
-		optionalAttrs["pad"] = [&](std::string strVal) {
+		optAttrProcs["pad"] = [&](std::string strVal) {
 			auto pad = Str2Pair<int>(strVal, 0);
 			if (pad.first == pad.second) {
 				if (pad.first != 0) {
@@ -164,13 +174,13 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 				convParam.set_pad_w(pad.second);
 			}
 		};
-		optionalAttrs["dilate"] = [&](std::string strVal) {
+		optAttrProcs["dilate"] = [&](std::string strVal) {
 			int nDilate = Pair2Num(Str2Pair<int>(strVal, 0));
 			if (nDilate != 1) {
 				convParam.add_dilation(nDilate);
 			}
 		};
-		optionalAttrs["num_group"] = [&](std::string strVal) {
+		optAttrProcs["num_group"] = [&](std::string strVal) {
 			int nNumChs = convParam.num_output();
 			int nNumGroup = Str2Num(strVal, 1, nNumChs);
 			CHECK_EQ(nNumChs % nNumGroup, 0);
@@ -179,36 +189,40 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 				convParam.set_group(nGroupSize);
 			}
 		};
-		optionalAttrs["no_bias"] = [&](std::string strVal) {
+		optAttrProcs["no_bias"] = [&](std::string strVal) {
 			bool bNoBias = Str2Bool(strVal);
 			if (bNoBias) {
 				convParam.set_bias_term(false);
 			}
 		};
-		optionalAttrs["workspace"]; // ignored
-		optionalAttrs["cudnn_tune"]; // ignored
-		optionalAttrs["cudnn_off"]; // ignored
-		//optionalAttrs["layout"]; // unsupported
+		optAttrProcs["layout"] = [&](std::string strVal) {
+			CHECK(strVal == "None");
+		};
+		optAttrProcs["workspace"]; // ignored
+		optAttrProcs["cudnn_tune"]; // ignored
+		optAttrProcs["cudnn_off"]; // ignored
 	} else if (mxnetNode.strOp == "Pooling") {
 		caffeLayer.set_type("Pooling");
 		auto &poolParam = *caffeLayer.mutable_pooling_param();
-		optionalAttrs["pool_type"] = [&](std::string strVal) {
+		optAttrProcs["pool_type"] = [&](std::string strVal) {
 			if (strVal == "avg") {
 				poolParam.set_pool(caffe::PoolingParameter_PoolMethod_AVE);
 			} else if(strVal != "max") {
 				LOG(FATAL) << "Unsupported pooling method: " << strVal;
 			}
 		};
-		optionalAttrs["kernel"] = [&](std::string strVal) {
-			auto kernel = Str2Pair<int>(strVal, 0);
-			if (kernel.first == kernel.second) {
-				poolParam.set_kernel_size(kernel.first);
-			} else {
-				poolParam.set_kernel_h(kernel.first);
-				poolParam.set_kernel_w(kernel.second);
+		optAttrProcs["kernel"] = [&](std::string strVal) {
+			if (!poolParam.global_pooling()) {
+				auto kernel = Str2Pair<int>(strVal, 0);
+				if (kernel.first == kernel.second) {
+					poolParam.set_kernel_size(kernel.first);
+				} else {
+					poolParam.set_kernel_h(kernel.first);
+					poolParam.set_kernel_w(kernel.second);
+				}
 			}
 		};
-		optionalAttrs["stride"] = [&](std::string strVal) {
+		optAttrProcs["stride"] = [&](std::string strVal) {
 			auto stride = Str2Pair<int>(strVal, 1);
 			if (stride.first == stride.second) {
 				if (stride.first != 1) {
@@ -219,7 +233,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 				poolParam.set_stride_w(stride.second);
 			}
 		};
-		optionalAttrs["pad"] = [&](std::string strVal) {
+		optAttrProcs["pad"] = [&](std::string strVal) {
 			auto pad = Str2Pair<int>(strVal, 0);
 			if (pad.first == pad.second) {
 				if (pad.first != 0) {
@@ -230,22 +244,23 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 				poolParam.set_pad_w(pad.second);
 			}
 		};
-		optionalAttrs["global_pool"] = [&](std::string strVal) {
+		optAttrProcs["global_pool"] = [&](std::string strVal) {
 			bool bGlobalPool = Str2Bool(strVal);
 			if (bGlobalPool) {
 				poolParam.set_global_pooling(true);
+				poolParam.clear_kernel_size();
 			}
 		};
-		optionalAttrs["pooling_convention"] = [&](std::string strVal) {
+		optAttrProcs["pooling_convention"] = [&](std::string strVal) {
 			CHECK(strVal == "full");
 		};
-		optionalAttrs["p_value"] = [&](std::string strVal) {
+		optAttrProcs["p_value"] = [&](std::string strVal) {
 			LOG(FATAL) << "Lp pooling is not supported";
 		};
-		optionalAttrs["count_include_pad"] = [&](std::string strVal) {
+		optAttrProcs["count_include_pad"] = [&](std::string strVal) {
 			LOG(FATAL) << "count_include_pad is not supported";
 		};
-		optionalAttrs["cudnn_off"]; // ignored
+		optAttrProcs["cudnn_off"]; // ignored
 	} else if (mxnetNode.strOp == "elemwise_add" ||
 			mxnetNode.strOp == "_Plus") {
 		caffeLayer.set_type("Eltwise");
@@ -256,38 +271,47 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 	} else if (mxnetNode.strOp == "BatchNorm") {
 		caffeLayer.set_type("BatchNorm");
 		auto &bnParam = *caffeLayer.mutable_batch_norm_param();
-		optionalAttrs["eps"] = [&](std::string strVal) {
+		optAttrProcs["eps"] = [&](std::string strVal) {
 			double dEpsilon = Str2Num<double>(strVal, 0., 1.);
 			bnParam.set_eps((float)dEpsilon);
 		};
-		optionalAttrs["use_global_stats"] = [&](std::string strVal) {
+		optAttrProcs["use_global_stats"] = [&](std::string strVal) {
 			bool bUseGlobal = Str2Bool(strVal);
 			bnParam.set_use_global_stats(bUseGlobal);
 		};
-		optionalAttrs["momentum"] = [&](std::string strVal) {
+		optAttrProcs["momentum"] = [&](std::string strVal) {
 			float fMomentum = Str2Num<float>(strVal);
 			bnParam.set_moving_average_fraction(fMomentum);
 		};
-		optionalAttrs["output_mean_var"]; // ignored
-		optionalAttrs["cudnn_off"]; // ignored
-		//optionalAttrs["fix_gamma"]; // unsupported
-		//optionalAttrs["axis"]; // unsupported
+		optAttrProcs["fix_gamma"] = [&](std::string strVal) {
+			CHECK(strVal == "False" || strVal == "0");
+		};
+		optAttrProcs["axis"] = [&](std::string strVal) {
+			int nAxis = Str2Num<int>(strVal);
+			CHECK(nAxis == 1);
+		};
+		optAttrProcs["output_mean_var"]; // ignored
+		optAttrProcs["cudnn_off"]; // ignored
+		//optAttrProcs["axis"]; // unsupported
 	} else if (mxnetNode.strOp == "SoftmaxOutput") {
 		caffeLayer.set_type("SoftmaxWithLoss");
-		optionalAttrs["grad_scale"] = [&](std::string strVal) {
-			LOG(FATAL) << "grad_scale is not supported";
+		optAttrProcs["grad_scale"] = [&](std::string strVal) {
+			float fGradScale = Str2Num<float>(strVal);
+			CHECK_EQ(fGradScale, 1.0f) << "grad_scale is not supported";
 		};
-		optionalAttrs["ignore_label"] = [&](std::string strVal) {
-			int nIgnoreLabel = Str2Num<int>(strVal, 0);
-			caffeLayer.mutable_loss_param()->set_ignore_label(nIgnoreLabel);
+		optAttrProcs["ignore_label"] = [&](std::string strVal) {
+			int nIgnoreLabel = Str2Num<int>(strVal, -1);
+			if (nIgnoreLabel != -1) {
+				caffeLayer.mutable_loss_param()->set_ignore_label(nIgnoreLabel);
+			}
 		};
-		optionalAttrs["multi_output"] = [&](std::string strVal) {
+		optAttrProcs["multi_output"] = [&](std::string strVal) {
 			bool bMultiOut = Str2Bool(strVal);
 			if (bMultiOut) {
 				//TODO:
 			}
 		};
-		optionalAttrs["normalization"] = [&](std::string strVal) {
+		optAttrProcs["normalization"] = [&](std::string strVal) {
 			if (strVal == "batch") {
 				caffeLayer.mutable_loss_param()->set_normalization(
 						caffe::LossParameter_NormalizationMode_BATCH_SIZE);
@@ -295,34 +319,42 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 				caffeLayer.mutable_loss_param()->set_normalization(
 						caffe::LossParameter_NormalizationMode_VALID);
 			} else {
-				CHECK(strVal != "null");
+				CHECK(strVal == "null");
 			}
 		};
-		optionalAttrs["preserve_shape"]; // ignored
-		optionalAttrs["use_ignore"]; // ignored
-		//optionalAttrs["out_grad"]; // unsupported
-		//optionalAttrs["smooth_alpha"]; // unsupported
+		optAttrProcs["out_grad"] = [&](std::string strVal) {
+			CHECK(strVal == "False" || strVal == "0");
+		};
+		optAttrProcs["smooth_alpha"] = [&](std::string strVal) {
+			CHECK(strVal == "False" || strVal == "0");
+		};
+		optAttrProcs["preserve_shape"]; // ignored
+		optAttrProcs["use_ignore"]; // ignored
 	} else {
 		LOG(FATAL) << "Unsupported op: " << mxnetNode.strOp;
 	}
 
 	auto ProcAttrs = [&](const AttrProcMap &procMap) {
 		for (auto iAttr = mxnetNode.attrs.begin();
-				iAttr != mxnetNode.attrs.end(); ) {
-			auto iProc = procMap.find(iAttr->first);
-			if (iProc != procMap.end()) {
-				if (iProc->second != nullptr) {
-					iProc->second(iAttr->second);
+					iAttr != mxnetNode.attrs.end(); ) {
+				auto iProc = procMap.find(iAttr->first);
+				if (iProc != procMap.end()) {
+					if (iProc->second != nullptr) {
+						iProc->second(iAttr->second);
+					}
+					iAttr = mxnetNode.attrs.erase(iAttr);
+				} else {
+					iAttr++;
 				}
-				iAttr = mxnetNode.attrs.erase(iAttr);
-			} else {
-				iAttr++;
 			}
-		}
-	};
+		};
 
-	ProcAttrs(requiredAttrs);
-	ProcAttrs(optionalAttrs);
+	ProcAttrs(reqAttrProcs);
+	ProcAttrs(optAttrProcs);
+	for (auto &attr : mxnetNode.attrs) {
+		LOG(FATAL) << "Unknow attr " << attr.first << " of Op " <<
+				mxnetNode.strOp;
+	}
 	return cvtInfo;
 }
 
@@ -348,9 +380,7 @@ int GuessBlobIDFromInputName(std::string strInputName) {
 void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 	for (auto iLayer = layers.begin(); iLayer != layers.end(); ) {
 		if (iLayer->type() == "BatchNorm") {
-			if (iLayer->bottom_size() == 3) {
-
-			}
+			CHECK_GE(iLayer->bottom_size(), 3);
 			CHECK_EQ(iLayer->top_size(), 1);
 			std::string strLayerName = iLayer->name();
 			std::string strOutputName = iLayer->top(0);
@@ -358,6 +388,18 @@ void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 			std::string strInputBeta = iLayer->bottom(2);
 			auto *pBottom = iLayer->mutable_bottom();
 			pBottom->erase(pBottom->begin() + 1, pBottom->begin() + 3);
+			if (iLayer->bottom_size() == 1) {
+				CHECK(IsEndWith(strInputGamma, "_gamma"));
+				CHECK(IsEndWith(strInputBeta, "_beta"));
+				std::string strMean = strInputGamma.substr(0,
+						strInputGamma.size() - 6) + "_moving_mean";
+				std::string strVar = strInputGamma.substr(0,
+						strInputGamma.size() - 6) + "_moving_var";
+				iLayer->add_bottom(strMean);
+				iLayer->add_bottom(strVar);
+			} else {
+				CHECK(iLayer->bottom_size() == 3);
+			}
 
 			iLayer = layers.insert(++iLayer, caffe::LayerParameter());
 			iLayer->set_name(strLayerName + "_scale");
@@ -489,4 +531,12 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 	}
 
 	return net;
+}
+
+bool IsEndWith(const std::string &strString, const std::string &strSuffix) {
+	if (strString.length() >= strSuffix.length()) {
+		return (0 == strString.compare(strString.length() - strSuffix.length(),
+				strSuffix.length(), strSuffix));
+	}
+	return false;
 }

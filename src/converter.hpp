@@ -29,4 +29,6 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 
 int GuessBlobIDFromInputName(std::string strInputName);
 
+bool IsEndWith(const std::string &strString, const std::string &strSuffix);
+
 #endif /* CONVERTER_HPP_ */

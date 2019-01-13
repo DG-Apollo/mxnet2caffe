@@ -12,7 +12,7 @@ MxnetNode ParseMxnetNode(Json::iterator jNode) {
 			node.strOp = jField.value();
 		} else if (jField.key() == "name") {
 			node.strName = jField.value();
-		} else if (jField.key() == "attrs") {
+		} else if (jField.key() == "attrs" || jField.key() == "param") {
 			node.attrs = ParseArray<StringPair>(jField,
 					[](Json::iterator jAttr) {
 						return std::make_pair(jAttr.key(), jAttr.value());
