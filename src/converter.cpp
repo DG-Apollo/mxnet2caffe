@@ -127,6 +127,25 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 			bool bSqueeze = Str2Bool(strVal);
 			CHECK(!bSqueeze);
 		};
+	} else if (mxnetNode.strOp == "concat" || mxnetNode.strOp == "Concat") {
+		caffeLayer.set_type("Concat");
+		optAttrProcs["dim"] = [&](std::string strVal) {
+			int nDim = Str2Num<int>(strVal, 1);
+			if (nDim != 1) {
+				caffeLayer.mutable_concat_param()->set_axis(nDim);
+			}
+		};
+		optAttrProcs["num_args"]; // ignored
+	} else if (mxnetNode.strOp == "Dropout") {
+		caffeLayer.set_type("Dropout");
+		optAttrProcs["p"] = [&](std::string strVal) {
+			float fRatio = Str2Num<float>(strVal, 0.f, 1.f);
+			if (fRatio != 0.5f) {
+				caffeLayer.mutable_dropout_param()->set_dropout_ratio(fRatio);
+			}
+		};
+		optAttrProcs["axes"]; // ignored
+		optAttrProcs["mode"]; // ignored
 	} else if (mxnetNode.strOp == "FullyConnected") {
 		caffeLayer.set_type("InnerProduct");
 		reqAttrProcs["num_hidden"] = [&](std::string strVal) {
@@ -505,7 +524,6 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 	}
 
 	ExpandOrMergeLayers(caffeLayers);
-
 	caffe::NetParameter net;
 	for (auto &layer : caffeLayers) {
 		auto iInputInfo = std::find_if(inputInfos.begin(), inputInfos.end(),
@@ -518,6 +536,9 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 			for (auto d : iInputInfo->second) {
 				pShape->add_dim((int)d);
 			}
+		} else {
+			CHECK_GT(layer.bottom_size(), 0) << "Unmarked input node: " <<
+					layer.name();
 		}
 		auto &bottoms = *layer.mutable_bottom();
 		for (auto iBottom = bottoms.begin(); iBottom != bottoms.end(); ) {
@@ -533,6 +554,7 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 		}
 		net.add_layer()->CopyFrom(layer);
 	}
+	LOG(INFO) << caffeLayers[1].name();
 
 	return net;
 }
