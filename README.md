@@ -7,7 +7,7 @@
 ## Required Packages
 [BVLC/Caffe](https://github.com/BVLC/caffe)
 
-You must clearly know the absolute path where your caffe installed. If your caffe is believed to have installed in `YOUR_CAFFE_HOME`, like `/usr/local`, try to verify the caffe files do really exsist:
+You must clearly know the absolute path where your caffe installed. If your caffe is believed to have installed in `YOUR_CAFFE_HOME`, please try to verify those caffe files do really exsist:
 ```
 ls YOUR_CAFFE_HOME/distribute/include/caffe/caffe.hpp
 ls YOUR_CAFFE_HOME/distribute/lib/libcaffe.so
@@ -17,7 +17,7 @@ or
 ls YOUR_CAFFE_HOME/build/install/include/caffe/caffe.hpp
 ls YOUR_CAFFE_HOME/build/install/lib/libcaffe.so
 ```
-Please DO NOT complain any building failure before you did all above confirmations yet.
+Please DO NOT complains any building failure before you really did all above confirmations.
 
 ## Build
 ```
@@ -27,11 +27,11 @@ make # or make -j8
 ```
 
 ## To Prepare a MxNet Model
-A MxNet model consist of a symbol file (\*.json) and a parameters file (\*.params). In a more general setting, the two files should be named like:
+A MxNet model consist of a symbol file (\*.json) and a parameters file (\*.params). In general settings, the two files should have name like:
  - `<model_name>-symbol.json` and
  - `<model_name>-0000.params`.
 
-Mxnet2Caffe use an independent config json file to describe your model and obtain configurations of conversion from it. Following is an example of the config json file:
+Mxnet2Caffe use an independent config json file to describe your model and to configure conversion settings. Following is an example of the config json file:
 ```
 {
 	"mxnet_json" : "squeezenet_v1.1-symbol.json",
@@ -50,4 +50,5 @@ Find more examples in sub-path `./examples`.
 It should be very clear in the above example.
 
 ### Running the conversion:
-Simply run command `./mxnet2caffe config.json` and a Caffe model will be presented by your configurations.
+Simply run command `./mxnet2caffe config.json` and a Caffe model will be presented after conversion by your configurations.
+
