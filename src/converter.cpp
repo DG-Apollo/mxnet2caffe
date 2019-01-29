@@ -357,7 +357,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		LOG(FATAL) << "Unsupported op: " << mxnetNode.strOp;
 	}
 
-	auto ProcAttrs = [&](const AttrProcMap &procMap) {
+	auto ProcAttrs = [&](const AttrProcMap &procMap, bool bRequired) {
 		for (auto iAttr = mxnetNode.attrs.begin();
 					iAttr != mxnetNode.attrs.end(); ) {
 				auto iProc = procMap.find(iAttr->first);
@@ -367,13 +367,16 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 					}
 					iAttr = mxnetNode.attrs.erase(iAttr);
 				} else {
+					if (bRequired) {
+						CHECK(iProc != procMap.end());
+					}
 					iAttr++;
 				}
 			}
 		};
 
-	ProcAttrs(reqAttrProcs);
-	ProcAttrs(optAttrProcs);
+	ProcAttrs(reqAttrProcs, true);
+	ProcAttrs(optAttrProcs, false);
 	for (auto &attr : mxnetNode.attrs) {
 		LOG(FATAL) << "Unknow attr " << attr.first << " of Op " <<
 				mxnetNode.strOp;
