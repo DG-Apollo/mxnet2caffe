@@ -91,7 +91,6 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 				LOG(FATAL);
 			}
 		};
-		optAttrProcs["__mirror_stage__"];
 	} else if (mxnetNode.strOp == "SoftmaxActivation") {
 		caffeLayer.set_type("Softmax");
 		optAttrProcs["mode"] = [&](std::string strVal) {
@@ -288,12 +287,10 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 	} else if (mxnetNode.strOp == "elemwise_add" ||
 			mxnetNode.strOp == "_Plus") {
 		caffeLayer.set_type("Eltwise");
-		optAttrProcs["__mirror_stage__"];
 	} else if (mxnetNode.strOp == "elemwise_mul") {
 		caffeLayer.set_type("Eltwise");
 		caffeLayer.mutable_eltwise_param()->set_operation(
 				caffe::EltwiseParameter_EltwiseOp_PROD);
-		optAttrProcs["__mirror_stage__"];
 	} else if (mxnetNode.strOp == "BatchNorm") {
 		caffeLayer.set_type("BatchNorm");
 		auto &bnParam = *caffeLayer.mutable_batch_norm_param();
@@ -318,7 +315,6 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		};
 		optAttrProcs["output_mean_var"]; // ignored
 		optAttrProcs["cudnn_off"]; // ignored
-		optAttrProcs["__mirror_stage__"]; // ignored
 		//optAttrProcs["axis"]; // unsupported
 	} else if (mxnetNode.strOp == "SoftmaxOutput") {
 		caffeLayer.set_type("SoftmaxWithLoss");
@@ -376,10 +372,20 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 
 	ProcAttrs(reqAttrProcs, true);
 	ProcAttrs(optAttrProcs, false);
+	std::set<std::string> hiddenKeys = {
+			"__ctx_group__",
+			"__lr_mult__",
+			"__wd_mult__",
+			"__force_mirroring__",
+			"__mirror_stage__"
+		};
 	if (mxnetNode.strOp != "null") {
 		for (auto &attr : mxnetNode.attrs) {
-			LOG(FATAL) << "Unknow attr " << attr.first << " of Op " <<
-					mxnetNode.strOp;
+			if (hiddenKeys.find(attr.first) == hiddenKeys.end()) {
+				LOG(FATAL) << "Unknown attr \"" << attr.first <<
+						"\" found in node \"" << mxnetNode.strName <<
+						"\" (" <<mxnetNode.strOp << ")";
+			}
 		}
 	}
 	return cvtInfo;
