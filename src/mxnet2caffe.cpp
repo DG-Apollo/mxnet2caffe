@@ -13,8 +13,8 @@
 #include <fstream>
 #include <map>
 #include <google/protobuf/text_format.h>
+#include <glog/logging.h>
 
-#include "logging.hpp"
 #include "common.hpp"
 #include "json_helper.hpp"
 #include "mxnet_parser.hpp"
