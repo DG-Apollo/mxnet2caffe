@@ -10,7 +10,8 @@
 
 #include "mxnet_parser.hpp"
 #include <fstream>
-#include "logging.hpp"
+#include <glog/logging.h>
+
 #include "json_helper.hpp"
 
 MxnetNode ParseMxnetNode(Json::iterator jNode) {

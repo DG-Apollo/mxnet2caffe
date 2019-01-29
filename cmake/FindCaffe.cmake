@@ -1,6 +1,6 @@
 # FindCaffe.cmake
 # ------------
-#	You can specify the path to caffe files in CAFFE_INSTALL_DIR
+#	You can specify the path to caffe files in CAFFE_HOME
 #
 #	This will define the following variables:
 #	CAFFE_FOUND			- True if the system has the Inference Engine library
@@ -9,8 +9,11 @@
 
 INCLUDE(FindPackageHandleStandardArgs)
 
-IF(NOT "${CAFFE_INSTALL_DIR}" STREQUAL "")
-	SET(CAFFE_INSTALL_DIR_HINTS "${CAFFE_INSTALL_DIR}/build/install" "${CAFFE_INSTALL_DIR}")
+IF(NOT "${CAFFE_HOME}" STREQUAL "")
+	SET(CAFFE_INSTALL_DIR_HINTS
+		"${CAFFE_HOME}/build/install"
+		"${CAFFE_HOME}/distribute"
+		)
 ELSEIF()
 	SET(CAFFE_INSTALL_DIR_HINTS "/usr" "/usr/local")
 ENDIF()

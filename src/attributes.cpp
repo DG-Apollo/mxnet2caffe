@@ -11,7 +11,8 @@
 
 #include "attributes.hpp"
 #include <algorithm>
-#include "logging.hpp"
+#include <glog/logging.h>
+
 
 Attributes::Attributes(const std::vector<StringPair> &baseObj) :
 		std::vector<StringPair>(baseObj) {

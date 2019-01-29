@@ -17,8 +17,8 @@
 
 #define CPU_ONLY
 #include <caffe/caffe.hpp>
+#include <glog/logging.h>
 
-#include "logging.hpp"
 #include "istream_helper.hpp"
 
 template<typename _Ty>
