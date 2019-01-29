@@ -318,6 +318,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		};
 		optAttrProcs["output_mean_var"]; // ignored
 		optAttrProcs["cudnn_off"]; // ignored
+		optAttrProcs["__mirror_stage__"]; // ignored
 		//optAttrProcs["axis"]; // unsupported
 	} else if (mxnetNode.strOp == "SoftmaxOutput") {
 		caffeLayer.set_type("SoftmaxWithLoss");
