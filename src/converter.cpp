@@ -413,7 +413,8 @@ void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 			std::string strInputGamma = iLayer->bottom(1);
 			std::string strInputBeta = iLayer->bottom(2);
 			auto *pBottom = iLayer->mutable_bottom();
-			pBottom->erase(pBottom->begin() + 1, pBottom->begin() + 3);
+			pBottom->DeleteSubrange(1, 2);
+			//pBottom->erase(pBottom->begin() + 1, pBottom->begin() + 3);
 			if (iLayer->bottom_size() == 1) {
 				CHECK(IsEndWith(strInputGamma, "_gamma"));
 				CHECK(IsEndWith(strInputBeta, "_beta"));
@@ -550,7 +551,8 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 				auto &blobVec = blobMapping[layer.name()];
 				blobVec.resize(nBlobID + 1);
 				blobVec[nBlobID] = std::move(*iBottom);
-				iBottom = bottoms.erase(iBottom);
+				bottoms.DeleteSubrange(iBottom - bottoms.begin(), 1);
+				//iBottom = bottoms.erase(iBottom);
 			} else {
 				++iBottom;
 			}
