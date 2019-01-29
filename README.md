@@ -7,17 +7,17 @@
 ## Required Packages
 [BVLC/Caffe](https://github.com/BVLC/caffe)
 
-You must clearly know the absolute path where your caffe installed. If your caffe is believed to have installed in `YOUR_CAFFE_INSTALL_DIR`, like `/usr/local`, try to verify the caffe files do really exsist:
+You must clearly know the absolute path where your caffe installed. If your caffe is believed to have installed in `YOUR_CAFFE_HOME`, like `/usr/local`, try to verify the caffe files do really exsist:
 ```
-ls YOUR_CAFFE_INSTALL_DIR/include/caffe/caffe.hpp
-ls YOUR_CAFFE_INSTALL_DIR/lib/libcaffe.so
+ls YOUR_CAFFE_HOME/include/caffe/caffe.hpp
+ls YOUR_CAFFE_HOME/lib/libcaffe.so
 ```
 Please DO NOT complain any building failure before you did all above confirmations yet.
 
 ## Build
 ```
 mkdir build && cd build
-cmake -DCAFFE_INSTALL_DIR=<YOUR_CAFFE_INSTALL_PATH> ..
+cmake -DCAFFE_HOME=<YOUR_CAFFE_INSTALL_PATH> ..
 make # or make -j8
 ```
 
