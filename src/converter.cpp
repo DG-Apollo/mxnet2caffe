@@ -358,19 +358,14 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 	}
 
 	auto ProcAttrs = [&](const AttrProcMap &procMap, bool bRequired) {
-		for (auto iAttr = mxnetNode.attrs.begin();
-					iAttr != mxnetNode.attrs.end(); ) {
-				auto iProc = procMap.find(iAttr->first);
-				if (iProc != procMap.end()) {
-					if (iProc->second != nullptr) {
-						iProc->second(iAttr->second);
-					}
-					iAttr = mxnetNode.attrs.erase(iAttr);
-				} else {
-					if (bRequired) {
-						CHECK(iProc != procMap.end());
-					}
-					iAttr++;
+			for (auto attrProc : procMap) {
+				std::string strVal = mxnetNode.attrs.GetValue(
+						attrProc.first, bRequired);
+				if (!strVal.empty() && attrProc.second != nullptr) {
+					attrProc.second(strVal);
+				}
+				if (mxnetNode.attrs.HasValue(attrProc.first)) {
+					mxnetNode.attrs.RemoveValue(attrProc.first);
 				}
 			}
 		};
