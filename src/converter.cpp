@@ -91,6 +91,18 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 				LOG(FATAL);
 			}
 		};
+	} else if (mxnetNode.strOp == "LeakyReLU") {
+		caffeLayer.set_type("ReLU");
+		optAttrProcs["act_type"] = [&](std::string strVal) {
+			CHECK(strVal == "leaky");
+		};
+		optAttrProcs["slope"] = [&](std::string strVal) {
+			float fRatio = Str2Num<float>(strVal, 0.f, 1.f);
+			caffeLayer.mutable_relu_param()->set_negative_slope(fRatio);
+		};
+		optAttrProcs["gamma"];
+		optAttrProcs["lower_bound"];
+		optAttrProcs["upper_bound"];
 	} else if (mxnetNode.strOp == "SoftmaxActivation") {
 		caffeLayer.set_type("Softmax");
 		optAttrProcs["mode"] = [&](std::string strVal) {
