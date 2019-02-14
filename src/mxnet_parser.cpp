@@ -75,7 +75,7 @@ std::pair<std::vector<MxnetNode>, std::vector<size_t>> ParseMxnetJson(
 
 std::vector<MxnetParam> LoadMxnetParam(std::string strModelFn) {
 	FILE* fp = fopen(strModelFn.c_str(), "rb");
-	CHECK(fp);
+	CHECK(fp != 0) << strModelFn;
 
 	std::vector<MxnetParam> params;
 
