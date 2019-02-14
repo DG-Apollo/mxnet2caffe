@@ -87,22 +87,43 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		reqAttrProcs["act_type"] = [&](std::string strVal) {
 			if (strVal == "relu") {
 				caffeLayer.set_type("ReLU");
+			} else if (strVal == "Sigmoid") {
+				caffeLayer.set_type("Sigmoid");
+			} else if (strVal == "tanh") {
+				caffeLayer.set_type("TanH");
 			} else {
 				LOG(FATAL);
 			}
 		};
 	} else if (mxnetNode.strOp == "LeakyReLU") {
-		caffeLayer.set_type("ReLU");
-		optAttrProcs["act_type"] = [&](std::string strVal) {
-			CHECK(strVal == "leaky");
-		};
-		optAttrProcs["slope"] = [&](std::string strVal) {
-			float fRatio = Str2Num<float>(strVal, 0.f, 1.f);
-			caffeLayer.mutable_relu_param()->set_negative_slope(fRatio);
-		};
+		std::string strActType = mxnetNode.attrs.GetValue("act_type", false);
+		if (strActType.empty()) {
+			strActType = "leaky";
+		}
+		if (strActType == "leaky") {
+			caffeLayer.set_type("ReLU");
+			reqAttrProcs["slope"] = [&](std::string strArg) {
+				float fSlope = Str2Num<float>(strArg, 0.f, 1.f);
+				caffeLayer.mutable_relu_param()->set_negative_slope(fSlope);
+			};
+		} else if (strActType == "elu") {
+			caffeLayer.set_type("ELU");
+			reqAttrProcs["slope"] = [&](std::string strArg) {
+				float fAlpha = Str2Num<float>(strArg, 0.f, 1.f);
+				caffeLayer.mutable_elu_param()->set_alpha(fAlpha);
+			};
+		} else if (strActType == "prelu") {
+			caffeLayer.set_type("PReLU");
+		} else {
+			LOG(FATAL) << "Unsupported act_type \"" << strActType <<
+					"\" of LeakyRelu";
+		}
 		optAttrProcs["gamma"];
+		optAttrProcs["act_type"];
 		optAttrProcs["lower_bound"];
 		optAttrProcs["upper_bound"];
+	} else if (mxnetNode.strOp == "abs") {
+		caffeLayer.set_type("AbsVal");
 	} else if (mxnetNode.strOp == "SoftmaxActivation") {
 		caffeLayer.set_type("Softmax");
 		optAttrProcs["mode"] = [&](std::string strVal) {
@@ -571,7 +592,6 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 				blobVec.resize(nBlobID + 1);
 				blobVec[nBlobID] = std::move(*iBottom);
 				bottoms.DeleteSubrange(iBottom - bottoms.begin(), 1);
-				//iBottom = bottoms.erase(iBottom);
 			} else {
 				++iBottom;
 			}
