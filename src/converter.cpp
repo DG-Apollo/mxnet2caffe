@@ -386,6 +386,11 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		};
 		optAttrProcs["preserve_shape"]; // ignored
 		optAttrProcs["use_ignore"]; // ignored
+	} else if (mxnetNode.strOp == "L2Normalization") {
+		caffeLayer.set_type("Normalization");
+		optAttrProcs["mode"] = [&](std::string strVal) {
+			CHECK(strVal == "instance");
+		};
 	} else {
 		LOG(FATAL) << "Unsupported op: " << mxnetNode.strOp;
 	}
