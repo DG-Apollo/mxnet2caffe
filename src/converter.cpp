@@ -50,6 +50,27 @@ std::pair<_Ty, _Ty> Str2Pair(std::string str,
 }
 
 template<typename _Ty>
+std::vector<_Ty> Str2Tuple(std::string str) {
+	CHECK(!str.empty());
+	std::string::size_type beg = str.find('(');
+	std::string::size_type end = str.rfind(')');
+	CHECK_NE(beg, std::string::npos);
+	CHECK_NE(end, std::string::npos);
+	CHECK_GT(end - beg, 1);
+	str.erase(end, -1);
+	str.erase(0, beg + 1);
+	std::istringstream iss(str);
+	std::vector<_Ty> ret;
+	for (std::string strVal; std::getline(iss, strVal, ','); ) {
+		std::istringstream isv(strVal);
+		_Ty val;
+		isv >> val;
+		ret.push_back(val);
+	}
+	return ret;
+}
+
+template<typename _Ty>
 _Ty Pair2Num(const std::pair<_Ty, _Ty> &pair) {
 	CHECK_EQ(pair.first, pair.second);
 	return pair.first;
@@ -87,7 +108,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		reqAttrProcs["act_type"] = [&](std::string strVal) {
 			if (strVal == "relu") {
 				caffeLayer.set_type("ReLU");
-			} else if (strVal == "Sigmoid") {
+			} else if (strVal == "Sigmoid" || strVal == "sigmoid") {
 				caffeLayer.set_type("Sigmoid");
 			} else if (strVal == "tanh") {
 				caffeLayer.set_type("TanH");
@@ -386,6 +407,18 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		};
 		optAttrProcs["preserve_shape"]; // ignored
 		optAttrProcs["use_ignore"]; // ignored
+	} else if (mxnetNode.strOp == "reshape" || mxnetNode.strOp == "Reshape") {
+		caffeLayer.set_type("Reshape");
+		optAttrProcs["shape"] = [&](std::string strVal) {
+			auto shape = Str2Tuple<int>(strVal);
+			CHECK_GT(shape.size(), 0);
+			CHECK_LE(shape.size(), 4);
+			auto *pShape = caffeLayer.mutable_reshape_param()->mutable_shape();
+			for (auto s : shape) {
+				CHECK_GT(s, 0);
+				pShape->add_dim(s);
+			}
+		};
 	} else if (mxnetNode.strOp == "L2Normalization") {
 		caffeLayer.set_type("Normalization");
 		optAttrProcs["mode"] = [&](std::string strVal) {
