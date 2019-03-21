@@ -119,20 +119,19 @@ int main(int nArgCnt, char *ppArgs[]) {
 	protoFile.write(strProtoBuf.data(), strProtoBuf.size());
 	protoFile.close();
 
-	caffe::Net<float> net(protoNet);
-	auto &layers = net.layers();
-	for (auto &netLayer : layers) {
-		auto iBlobMap = blobMapping.find(netLayer->layer_param().name());
+	//caffe::Net<float> net(protoNet);
+	//auto &layers = net.layers();
+	for (auto &layer : *(protoNet.mutable_layer())) {
+		auto iBlobMap = blobMapping.find(layer.name());
 		if (iBlobMap != blobMapping.end()) {
 			auto &blobNames = iBlobMap->second;
-			auto &netBlobs = netLayer->blobs();
-			if (std::string(netLayer->type()) == "BatchNorm") {
-				CHECK_EQ(netBlobs.size(), 3);
+			auto *pProtoBlobs = layer.mutable_blobs();
+			if (layer.type() == "BatchNorm") {
 				CHECK_EQ(blobNames.size(), 2);
-				CHECK_EQ(netBlobs[2]->count(), 1);
-				*(netBlobs[2]->mutable_cpu_data()) = 1.0f;
-			} else {
-				CHECK_EQ(netBlobs.size(), blobNames.size());
+				for (int i = 0; i < 3; ++i) {
+					layer.add_blobs();
+				}
+				layer.mutable_blobs(2)->add_data(1.0f);
 			}
 			for (size_t i = 0; i < blobNames.size(); ++i) {
 				auto iMxnetParam = std::find_if(mxnetParams.begin(),
@@ -141,16 +140,22 @@ int main(int nArgCnt, char *ppArgs[]) {
 						}
 					);
 				CHECK(iMxnetParam != mxnetParams.end());
-				auto &pNetBlob = netBlobs[i];
-				CHECK_EQ(pNetBlob->count(), iMxnetParam->data.size());
-				memcpy(pNetBlob->mutable_cpu_data(), iMxnetParam->data.data(),
-						pNetBlob->count() * sizeof(float));
+				size_t nBlobSize = iMxnetParam->data.size();
+
+				auto *pBlob = layer.add_blobs();
+				auto *pShape = pBlob->mutable_shape();
+				pShape->add_dim(nBlobSize);
+
+				pBlob->mutable_data()->Resize(nBlobSize, 0.f);
+				memcpy(pBlob->mutable_data()->mutable_data(),
+						iMxnetParam->data.data(),
+						nBlobSize * sizeof(float));
 			}
 		}
 	}
-
-	net.ToProto(&protoNet, false);
-	caffe::WriteProtoToBinaryFile(protoNet, po.strCaffeModel.c_str());
+	std::ofstream outBinFile(po.strCaffeModel.c_str(), std::ofstream::binary);
+	protoNet.SerializeToOstream(&outBinFile);
+	outBinFile.close();
 
 	return 0;
 }

@@ -415,7 +415,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 			CHECK_LE(shape.size(), 4);
 			auto *pShape = caffeLayer.mutable_reshape_param()->mutable_shape();
 			for (auto s : shape) {
-				CHECK_GT(s, 0);
+				//CHECK_GT(s, -2);
 				pShape->add_dim(s);
 			}
 		};
