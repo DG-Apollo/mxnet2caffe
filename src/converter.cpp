@@ -424,6 +424,8 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		optAttrProcs["mode"] = [&](std::string strVal) {
 			CHECK(strVal == "instance");
 		};
+	} else if (mxnetNode.strOp == "broadcast_mul") {
+		caffeLayer.set_type("BroadcastMul");
 	} else {
 		LOG(FATAL) << "Unsupported op: " << mxnetNode.strOp;
 	}
