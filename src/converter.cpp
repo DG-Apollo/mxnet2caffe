@@ -428,6 +428,12 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		};
 	} else if (mxnetNode.strOp == "broadcast_mul") {
 		caffeLayer.set_type("BroadcastMul");
+	} else if (mxnetNode.strOp == "_mul_scalar") {
+		caffeLayer.set_type("Power");
+		optAttrProcs["scalar"] = [&](std::string strVal) {
+			float fScalar = Str2Num<float>(strVal);
+			caffeLayer.mutable_power_parameter()->set_scale(fScalar);
+		}
 	} else {
 		LOG(FATAL) << "Unsupported op: " << mxnetNode.strOp;
 	}
