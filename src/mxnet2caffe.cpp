@@ -119,43 +119,44 @@ int main(int nArgCnt, char *ppArgs[]) {
 	protoFile.write(strProtoBuf.data(), strProtoBuf.size());
 	protoFile.close();
 
-	//caffe::Net<float> net(protoNet);
-	//auto &layers = net.layers();
-	for (auto &layer : *(protoNet.mutable_layer())) {
-		auto iBlobMap = blobMapping.find(layer.name());
+	caffe::Net<float> net(protoNet);
+	auto &layers = net.layers();
+	for (auto &netLayer : layers) {
+		auto iBlobMap = blobMapping.find(netLayer->layer_param().name());
 		if (iBlobMap != blobMapping.end()) {
 			auto &blobNames = iBlobMap->second;
-			auto *pProtoBlobs = layer.mutable_blobs();
-			if (layer.type() == "BatchNorm") {
+			auto &netBlobs = netLayer->blobs();
+			if (std::string(netLayer->type()) == "BatchNorm") {
+				CHECK_EQ(netBlobs.size(), 3);
 				CHECK_EQ(blobNames.size(), 2);
-				for (int i = 0; i < 3; ++i) {
-					layer.add_blobs();
-				}
-				layer.mutable_blobs(2)->add_data(1.0f);
+				CHECK_EQ(netBlobs[2]->count(), 1);
+				*(netBlobs[2]->mutable_cpu_data()) = 1.0f;
+			} else {
+				CHECK_EQ(netBlobs.size(), blobNames.size());
 			}
 			for (size_t i = 0; i < blobNames.size(); ++i) {
+				// Param won't be copy to caffemodel if learning rate is 0
+				if (netLayer->layer_param().param_size() > i) {
+					auto &paramSpec = netLayer->layer_param().param(i);
+					if (paramSpec.has_lr_mult() && paramSpec.lr_mult() == 0.f) {
+						continue;
+					}
+				}
 				auto iMxnetParam = std::find_if(mxnetParams.begin(),
 						mxnetParams.end(), [&](const MxnetParam &param) {
 							return param.strName == blobNames[i];
 						}
 					);
 				CHECK(iMxnetParam != mxnetParams.end());
-				size_t nBlobSize = iMxnetParam->data.size();
-
-				auto *pBlob = layer.add_blobs();
-				auto *pShape = pBlob->mutable_shape();
-				pShape->add_dim(nBlobSize);
-
-				pBlob->mutable_data()->Resize(nBlobSize, 0.f);
-				memcpy(pBlob->mutable_data()->mutable_data(),
-						iMxnetParam->data.data(),
-						nBlobSize * sizeof(float));
+				auto &pNetBlob = netBlobs[i];
+				CHECK_EQ(pNetBlob->count(), iMxnetParam->data.size());
+				memcpy(pNetBlob->mutable_cpu_data(), iMxnetParam->data.data(),
+						pNetBlob->count() * sizeof(float));
 			}
 		}
 	}
-	std::ofstream outBinFile(po.strCaffeModel.c_str(), std::ofstream::binary);
-	protoNet.SerializeToOstream(&outBinFile);
-	outBinFile.close();
+	net.ToProto(&protoNet, false);
+	caffe::WriteProtoToBinaryFile(protoNet, po.strCaffeModel.c_str());
 
 	return 0;
 }
