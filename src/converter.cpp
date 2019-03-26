@@ -361,7 +361,9 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 			bnParam.set_moving_average_fraction(fMomentum);
 		};
 		optAttrProcs["fix_gamma"] = [&](std::string strVal) {
-			CHECK(strVal == "False" || strVal == "0");
+			if (strVal == "True" || strVal == "true" || strVal == "1" ) {
+				caffeLayer.add_param(); // just a tag for fix_gamma
+			}
 		};
 		optAttrProcs["axis"] = [&](std::string strVal) {
 			int nAxis = Str2Num<int>(strVal);
@@ -415,7 +417,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 			CHECK_LE(shape.size(), 4);
 			auto *pShape = caffeLayer.mutable_reshape_param()->mutable_shape();
 			for (auto s : shape) {
-				CHECK_GT(s, 0);
+				//CHECK_GT(s, -2);
 				pShape->add_dim(s);
 			}
 		};
@@ -507,7 +509,13 @@ void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 			} else {
 				CHECK(iLayer->bottom_size() == 3);
 			}
-
+			bool bFixedGamma = false;
+			// If fix_gamma is set, a "param" should be added to the layer before
+			if (iLayer->param_size() > 0) {
+				CHECK_EQ(iLayer->param_size(), 1);
+				bFixedGamma = true;
+				iLayer->clear_param();
+			}
 			iLayer = layers.insert(++iLayer, caffe::LayerParameter());
 			iLayer->set_name(strLayerName + "_scale");
 			iLayer->set_type("Scale");
@@ -516,7 +524,12 @@ void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 			iLayer->add_bottom(strInputBeta);
 			iLayer->add_top(strOutputName);
 			iLayer->mutable_scale_param()->set_bias_term(true);
-
+			if (bFixedGamma) {
+				iLayer->add_param()->set_lr_mult(0.f);
+				auto *pFiller = iLayer->mutable_scale_param()->mutable_filler();
+				pFiller->set_type("constant");
+				pFiller->set_value(1.0f);
+			}
 			++iLayer;
 		} else if (iLayer->type() == "Flatten" ||
 				GuessBlobIDFromInputName(iLayer->name()) >= 0) {

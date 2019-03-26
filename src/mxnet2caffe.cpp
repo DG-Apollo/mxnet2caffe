@@ -135,6 +135,13 @@ int main(int nArgCnt, char *ppArgs[]) {
 				CHECK_EQ(netBlobs.size(), blobNames.size());
 			}
 			for (size_t i = 0; i < blobNames.size(); ++i) {
+				// Param won't be copy to caffemodel if learning rate is 0
+				if (netLayer->layer_param().param_size() > i) {
+					auto &paramSpec = netLayer->layer_param().param(i);
+					if (paramSpec.has_lr_mult() && paramSpec.lr_mult() == 0.f) {
+						continue;
+					}
+				}
 				auto iMxnetParam = std::find_if(mxnetParams.begin(),
 						mxnetParams.end(), [&](const MxnetParam &param) {
 							return param.strName == blobNames[i];
@@ -148,7 +155,6 @@ int main(int nArgCnt, char *ppArgs[]) {
 			}
 		}
 	}
-
 	net.ToProto(&protoNet, false);
 	caffe::WriteProtoToBinaryFile(protoNet, po.strCaffeModel.c_str());
 
