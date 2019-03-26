@@ -432,8 +432,8 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		caffeLayer.set_type("Power");
 		optAttrProcs["scalar"] = [&](std::string strVal) {
 			float fScalar = Str2Num<float>(strVal);
-			caffeLayer.mutable_power_parameter()->set_scale(fScalar);
-		}
+			caffeLayer.mutable_power_param()->set_scale(fScalar);
+		};
 	} else {
 		LOG(FATAL) << "Unsupported op: " << mxnetNode.strOp;
 	}
