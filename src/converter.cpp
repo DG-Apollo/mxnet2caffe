@@ -262,7 +262,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 			int nNumGroup = Str2Num(strVal, 1, nNumChs);
 			CHECK_EQ(nNumChs % nNumGroup, 0);
 			if (nNumGroup != 1) {
-				int nGroupSize = nNumChs / nNumGroup;
+				int nGroupSize = nNumGroup;
 				convParam.set_group(nGroupSize);
 			}
 		};
