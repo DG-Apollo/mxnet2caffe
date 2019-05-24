@@ -119,9 +119,7 @@ int main(int nArgCnt, char *ppArgs[]) {
 	protoFile.write(strProtoBuf.data(), strProtoBuf.size());
 	protoFile.close();
 
-	LOG(INFO) << "Building caffe network...";
 	caffe::Net<float> net(protoNet);
-	LOG(INFO) << "Network built";
 	auto &layers = net.layers();
 	for (auto &netLayer : layers) {
 		auto iBlobMap = blobMapping.find(netLayer->layer_param().name());
@@ -140,7 +138,7 @@ int main(int nArgCnt, char *ppArgs[]) {
 				// Param won't be copy to caffemodel if learning rate is 0
 				if (netLayer->layer_param().param_size() > i) {
 					auto &paramSpec = netLayer->layer_param().param(i);
-					if (paramSpec.has_lr_mult() && paramSpec.lr_mult() == 0.f) {
+					if (paramSpec.has_decay_mult() && paramSpec.decay_mult() == 3.1415926f) {
 						continue;
 					}
 				}
@@ -151,7 +149,7 @@ int main(int nArgCnt, char *ppArgs[]) {
 					);
 				CHECK(iMxnetParam != mxnetParams.end());
 				auto &pNetBlob = netBlobs[i];
-				CHECK_EQ(pNetBlob->count(), iMxnetParam->data.size()) << blobNames[i];
+				CHECK_EQ(pNetBlob->count(), iMxnetParam->data.size()) << netLayer->layer_param().name();
 				memcpy(pNetBlob->mutable_cpu_data(), iMxnetParam->data.data(),
 						pNetBlob->count() * sizeof(float));
 			}
