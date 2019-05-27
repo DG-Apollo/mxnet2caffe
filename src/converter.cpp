@@ -524,7 +524,7 @@ void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 			}
 			if (bFixedGamma) {
 				auto *pParam = iLayer->add_param();
-				pParam->set_decay_mult(3.1415926f);
+				pParam->set_decay_mult(100.);
 				pParam->set_lr_mult(0.f);
 				//iLayer->mutable_relu_param();
 				auto *pFiller = iLayer->mutable_scale_param()->mutable_filler();
