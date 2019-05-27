@@ -137,8 +137,10 @@ int main(int nArgCnt, char *ppArgs[]) {
 			for (size_t i = 0; i < blobNames.size(); ++i) {
 				// Param won't be copy to caffemodel if learning rate is 0
 				if (netLayer->layer_param().param_size() > i) {
-					auto &paramSpec = netLayer->layer_param().param(i);
-					if (paramSpec.has_decay_mult() && paramSpec.decay_mult() == 3.1415926f) {
+					auto &paramSpec = netLayer->layer_param().param(0);
+					bool b1 = paramSpec.decay_mult() == 100.f;
+					bool b2 = (blobNames[i].find("moving") == std::string::npos);
+					if (b1 && b2) {
 						continue;
 					}
 				}
