@@ -522,15 +522,6 @@ void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 				bFixedGamma = true;
 				iLayer->clear_param();
 			}
-			if (bFixedGamma) {
-				auto *pParam = iLayer->add_param();
-				pParam->set_decay_mult(100.);
-				pParam->set_lr_mult(0.f);
-				//iLayer->mutable_relu_param();
-				auto *pFiller = iLayer->mutable_scale_param()->mutable_filler();
-				pFiller->set_type("constant");
-				pFiller->set_value(1.0f);
-			}
 			iLayer = layers.insert(++iLayer, caffe::LayerParameter());
 			iLayer->set_name(strLayerName + "_scale");
 			iLayer->set_type("Scale");
@@ -539,6 +530,14 @@ void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 			iLayer->add_bottom(strInputBeta);
 			iLayer->add_top(strOutputName);
 			iLayer->mutable_scale_param()->set_bias_term(true);
+			if (bFixedGamma) {
+				auto *pParam = iLayer->add_param();
+				pParam->set_decay_mult(100.);
+				pParam->set_lr_mult(0.f);
+				auto *pFiller = iLayer->mutable_scale_param()->mutable_filler();
+				pFiller->set_type("constant");
+				pFiller->set_value(1.0f);
+			}
 			++iLayer;
 		} else if (iLayer->type() == "Flatten" ||
 				GuessBlobIDFromInputName(iLayer->name()) >= 0) {
