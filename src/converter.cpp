@@ -184,7 +184,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 	} else if (mxnetNode.strOp == "concat" || mxnetNode.strOp == "Concat") {
 		caffeLayer.set_type("Concat");
 		optAttrProcs["dim"] = [&](std::string strVal) {
-			int nDim = Str2Num<int>(strVal, 1);
+			int nDim = Str2Num<int>(strVal, 0);
 			if (nDim != 1) {
 				caffeLayer.mutable_concat_param()->set_axis(nDim);
 			}
@@ -539,9 +539,9 @@ void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 				pFiller->set_value(1.0f);
 			}
 			++iLayer;
-		} else if (iLayer->type() == "Flatten" ||
-				GuessBlobIDFromInputName(iLayer->name()) >= 0) {
-			iLayer = layers.erase(iLayer);
+		// } else if (iLayer->type() == "Flatten" ||
+		// 		GuessBlobIDFromInputName(iLayer->name()) >= 0) {
+		// 	iLayer = layers.erase(iLayer);
 		} else {
 			++iLayer;
 		}
