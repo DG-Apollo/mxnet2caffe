@@ -149,7 +149,6 @@ std::vector<MxnetParam> LoadMxnetParam(std::string strModelFn) {
 		if (memcmp(p.strName.c_str(), "aux:", 4) == 0) {
 			p.strName = std::string(p.strName.c_str() + 4);
 		}
-		LOG(INFO) << p.strName;
 	}
 
 	fclose(fp);
