@@ -140,7 +140,6 @@ int main(int nArgCnt, char *ppArgs[]) {
 					auto &paramSpec = netLayer->layer_param().param(0);
 					bool b1 = paramSpec.decay_mult() == 100.f;
 					bool b2 = blobNames[i].find("gamma") != std::string::npos;
-					LOG(INFO) << blobNames[i] << " " << b1 << " " << b2;
 					if (b1 && b2) {
 						continue;
 					}
