@@ -538,15 +538,14 @@ void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 				pFiller->set_type("constant");
 				pFiller->set_value(1.0f);
 			}
-			++iLayer;
 		} else if (iLayer->type() == "Flatten") {
-			//iLayer = layers.erase(iLayer);
+			iLayer = layers.erase(iLayer);
 		} else if (GuessBlobIDFromInputName(iLayer->name()) >= 0) {
 			iLayer = layers.erase(iLayer);
 		} else {
 			LOG(INFO) << iLayer->name();
-			++iLayer;
 		}
+		++iLayer;
 	}
 }
 
