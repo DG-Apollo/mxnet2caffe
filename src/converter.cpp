@@ -544,7 +544,6 @@ void ExpandOrMergeLayers(std::vector<caffe::LayerParameter> &layers) {
 		} else if (GuessBlobIDFromInputName(iLayer->name()) >= 0) {
 			iLayer = layers.erase(iLayer);
 		} else {
-			LOG(INFO) << iLayer->name();
 			++iLayer;
 		}
 	}
@@ -661,7 +660,6 @@ caffe::NetParameter MxnetNodes2CaffeNet(
 		}
 		net.add_layer()->CopyFrom(layer);
 	}
-	LOG(INFO) << caffeLayers[1].name();
 
 	return net;
 }
