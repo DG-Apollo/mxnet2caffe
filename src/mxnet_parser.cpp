@@ -78,7 +78,6 @@ std::vector<MxnetParam> LoadMxnetParam(std::string strModelFn) {
 	CHECK(fp != 0) << strModelFn;
 
 	std::vector<MxnetParam> params;
-
 	uint64_t header;
 	uint64_t reserved;
 	fread(&header, 1, sizeof(uint64_t), fp);

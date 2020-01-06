@@ -119,6 +119,7 @@ int main(int nArgCnt, char *ppArgs[]) {
 	protoFile.write(strProtoBuf.data(), strProtoBuf.size());
 	protoFile.close();
 
+	caffe::Caffe::set_mode(caffe::Caffe::CPU);
 	caffe::Net<float> net(protoNet);
 	auto &layers = net.layers();
 	for (auto &netLayer : layers) {

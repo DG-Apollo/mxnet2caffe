@@ -160,7 +160,7 @@ ConvertInfo MxnetNode2CaffeLayer(MxnetNode mxnetNode,
 		caffeLayer.set_type("Softmax");
 		optAttrProcs["axis"] = [&](std::string strVal) {
 			int nAxis = Str2Num<int>(strVal, -1, 4);
-			CHECK(nAxis == -1);
+			caffeLayer.mutable_softmax_param()->set_axis(nAxis);
 		};
 		optAttrProcs["temperature"] = [&](std::string strVal) {
 			double dTemp = Str2Num<double>(strVal);
